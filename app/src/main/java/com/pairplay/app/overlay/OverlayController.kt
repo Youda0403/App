@@ -70,8 +70,10 @@ class OverlayController(
      * 설정을 바꿀 때마다 오버레이를 껐다 켤 필요가 없도록 이 메서드로 즉시 반영한다.
      */
     fun setCharacters(a: CharacterEntity?, b: CharacterEntity?) {
-        val keepA = runtimeA?.entity?.id == a?.id && a != null
-        val keepB = runtimeB?.entity?.id == b?.id && b != null
+        // id 가 아니라 내용 전체를 비교한다. 이름/크기/기준점/반전을 고치면
+        // 오버레이를 껐다 켜지 않아도 바로 다시 그려져야 하기 때문이다.
+        val keepA = a != null && runtimeA?.entity == a
+        val keepB = b != null && runtimeB?.entity == b
 
         if (!keepA) {
             runtimeA?.let { teardown(it) }
