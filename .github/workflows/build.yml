@@ -47,7 +47,21 @@ jobs:
             "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: 단위 테스트
-        run: ./gradlew testDebugUnitTest --stacktrace
+        run: |
+          set -o pipefail
+          # --stacktrace 는 빼 둔다. 컴파일 오류가 수백 줄 스택 트레이스에 묻혀
+          # 로그 끝만 봐서는 무엇이 틀렸는지 알 수 없게 된다.
+          if ! ./gradlew testDebugUnitTest 2>&1 | tee gradle-output.txt; then
+            echo "=============================================="
+            echo " 컴파일 오류"
+            echo "=============================================="
+            grep -E "^e: " gradle-output.txt | head -40 || echo "(컴파일 오류 없음 - 테스트 실패로 보임)"
+            echo "=============================================="
+            echo " 실패한 테스트"
+            echo "=============================================="
+            grep -E "FAILED|AssertionError" gradle-output.txt | head -30 || true
+            exit 1
+          fi
 
       - name: Lint (오류만 확인)
         run: ./gradlew lintDebug --stacktrace

@@ -203,7 +203,7 @@ class OverlayController(
         if (previous.effectsEnabled && !newSettings.effectsEnabled) {
             forEachRuntime {
                 it.effects.clear()
-                it.effectWindow.setEffects(emptyList())
+                it.effectWindow.setContent(emptyList(), null, 0f)
             }
         }
         if (previous.scalePercent != newSettings.scalePercent) {
@@ -352,7 +352,7 @@ class OverlayController(
         if (hidden) {
             forEachRuntime {
                 it.effects.clear()
-                it.effectWindow.setEffects(emptyList())
+                it.effectWindow.setContent(emptyList(), null, 0f)
             }
         }
     }
