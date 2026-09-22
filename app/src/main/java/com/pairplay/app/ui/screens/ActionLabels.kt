@@ -23,6 +23,7 @@ internal fun actionLabel(action: CharacterAction): String = when (action) {
     CharacterAction.BUMP -> "부딪히기"
     CharacterAction.LEAN -> "기대기"
     CharacterAction.PET -> "쓰다듬김"
+    CharacterAction.DANGLE -> "매달리기"
     CharacterAction.GLANCE -> "힐끗 보기"
     CharacterAction.TEASE -> "장난치기"
     CharacterAction.SHY -> "수줍어하기"
