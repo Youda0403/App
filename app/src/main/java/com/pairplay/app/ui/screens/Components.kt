@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -111,4 +113,34 @@ fun CharacterThumbnail(
             modifier = modifier.size(sizeDp.dp)
         )
     }
+}
+
+/**
+ * 캐릭터를 '화면에 뜨는 높이' 기준으로 그린다.
+ * 가로는 원본 비율대로 따라가므로, 두 캐릭터를 나란히 놓으면
+ * 실제 오버레이에서 보이는 크기 차이가 그대로 드러난다.
+ */
+@Composable
+fun CharacterPreviewByHeight(
+    character: CharacterEntity?,
+    heightDp: Int,
+    modifier: Modifier = Modifier
+) {
+    val file = character?.imagePath?.let { File(it) }
+    if (character == null || file == null || !file.exists()) {
+        Text(
+            "이미지 없음",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = modifier
+        )
+        return
+    }
+    AsyncImage(
+        model = file,
+        contentDescription = character.name,
+        contentScale = ContentScale.Fit,
+        modifier = modifier
+            .height(heightDp.coerceAtLeast(1).dp)
+            .wrapContentWidth()
+    )
 }

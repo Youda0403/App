@@ -239,12 +239,16 @@ class OverlayService : LifecycleService() {
             .setOngoing(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            // 아이콘을 0 으로 넘기면 일부 제조사 알림창에서 버튼 자체가 그려지지 않는다.
+            // 실제 아이콘을 넘겨야 '숨기기'와 '중지'가 확실히 보인다.
             .addAction(
-                0,
+                if (hidden) R.drawable.ic_action_show else R.drawable.ic_action_hide,
                 getString(if (hidden) R.string.action_show else R.string.action_hide),
                 toggleHide
             )
-            .addAction(0, getString(R.string.action_stop), stop)
+            .addAction(R.drawable.ic_action_stop, getString(R.string.action_stop), stop)
+            .setShowWhen(false)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
 

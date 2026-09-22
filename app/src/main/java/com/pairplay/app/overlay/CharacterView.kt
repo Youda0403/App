@@ -30,17 +30,19 @@ class CharacterView(context: Context) : View(context) {
     private var drawWidth = 0f
     private var drawHeight = 0f
 
-    /** 창 가장자리 여백(px). 기울기/확대로 이미지가 잘리지 않게 둔다. */
-    var edgePadding = 0f
-        set(value) {
-            field = value
-            invalidate()
-        }
+    /**
+     * 창 가장자리 여백(px). 기울기/확대로 그림이 잘리지 않게 둔다.
+     * 가로와 세로가 필요한 양이 달라 따로 받는다.
+     */
+    private var edgePaddingX = 0f
+    private var edgePaddingY = 0f
 
     var pose: Pose = Pose.NEUTRAL
         set(value) {
-            field = value
-            invalidate()
+            if (field != value) {
+                field = value
+                invalidate()
+            }
         }
 
     var facingRight: Boolean = true
@@ -60,6 +62,14 @@ class CharacterView(context: Context) : View(context) {
             }
         }
 
+    fun setEdgePadding(x: Float, y: Float) {
+        if (edgePaddingX == x && edgePaddingY == y) return
+        edgePaddingX = x
+        edgePaddingY = y
+        requestLayout()
+        invalidate()
+    }
+
     fun setCharacterBitmap(bitmap: Bitmap?, drawWidthPx: Float, drawHeightPx: Float) {
         this.bitmap = bitmap
         this.drawWidth = drawWidthPx
@@ -70,8 +80,8 @@ class CharacterView(context: Context) : View(context) {
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val w = (drawWidth + edgePadding * 2f).toInt().coerceAtLeast(1)
-        val h = (drawHeight + edgePadding * 2f).toInt().coerceAtLeast(1)
+        val w = (drawWidth + edgePaddingX * 2f).toInt().coerceAtLeast(1)
+        val h = (drawHeight + edgePaddingY * 2f).toInt().coerceAtLeast(1)
         setMeasuredDimension(w, h)
     }
 
@@ -81,15 +91,16 @@ class CharacterView(context: Context) : View(context) {
 
         val centerX = width / 2f
         val centerY = height / 2f
+        // 발밑을 회전·확대의 기준으로 삼는다. 그래야 캐릭터가 땅에 붙어 있는 느낌이 난다.
+        val footY = centerY + drawHeight / 2f
 
         val save = canvas.save()
 
         canvas.translate(0f, pose.offsetY)
-        canvas.rotate(pose.rotationDeg, centerX, centerY + drawHeight / 2f)
+        canvas.rotate(pose.rotationDeg, centerX, footY)
 
-        // 아래쪽(발끝)을 고정한 채 늘어나도록 세로 기준점을 바닥에 둔다.
         val mirror = if (facingRight != flippedByUser) 1f else -1f
-        canvas.scale(pose.scaleX * mirror, pose.scaleY, centerX, centerY + drawHeight / 2f)
+        canvas.scale(pose.scaleX * mirror, pose.scaleY, centerX, footY)
 
         dstRect.set(
             centerX - drawWidth / 2f,

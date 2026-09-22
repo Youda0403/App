@@ -32,7 +32,8 @@ fun HomeScreen(
     state: PairPlayUiState,
     viewModel: PairPlayViewModel,
     onOpenCharacters: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenSizeMatch: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -111,6 +112,9 @@ fun HomeScreen(
                 Button(onClick = onOpenCharacters, modifier = Modifier.fillMaxWidth()) {
                     Text("캐릭터 관리")
                 }
+                Button(onClick = onOpenSizeMatch, modifier = Modifier.fillMaxWidth()) {
+                    Text("두 캐릭터 키 맞추기")
+                }
                 Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
                     Text("오버레이 설정")
                 }
@@ -118,7 +122,9 @@ fun HomeScreen(
 
             SectionCard("사용 요령") {
                 Text("• 캐릭터를 끌어서 옮길 수 있어요.")
-                Text("• 캐릭터를 톡 치면 놀라고, 짝이 있으면 쳐다봐요.")
+                Text("• 캐릭터를 톡 치면 하트가 뜨고, 짝이 있으면 쳐다봐요.")
+                Text("• 캐릭터 위를 좌우로 문지르면 쓰다듬기가 돼요. 하트가 계속 올라와요.")
+                Text("• 걷다가 화면 끝에 닿으면 부딪히고 돌아서요.")
                 Text("• 캐릭터를 길게 누르면 바로 숨겨져요. 비밀번호 입력처럼 가려지면 곤란할 때 쓰세요.")
                 Text("• 알림창에서도 숨기기와 중지를 할 수 있어요.")
             }

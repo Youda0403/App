@@ -22,7 +22,16 @@ enum class CharacterAction(
     LOOK_AT("look_at", 1_400L),
     DOZE("doze", 6_000L),
     RHYTHM("rhythm", 2_000L),
-    SURPRISED("surprised", 800L);
+    SURPRISED("surprised", 800L),
+
+    /** 화면 가장자리에 부딪혔을 때. 살짝 찌그러졌다 돌아선다. */
+    BUMP("bump", 700L),
+
+    /** 가장자리에 기대어 쉰다. */
+    LEAN("lean", 4_000L),
+
+    /** 쓰다듬어 줄 때. 기분 좋게 몸을 흔든다. */
+    PET("pet", 1_600L);
 
     companion object {
         fun fromId(id: String?): CharacterAction =
@@ -47,6 +56,27 @@ data class Pose(
 }
 
 /**
+ * 어떤 동작도 이 범위를 넘지 않는다는 약속.
+ *
+ * 창 여백을 이 값들로 계산하기 때문에 중요하다. 여기를 넘는 자세가 생기면
+ * 캐릭터가 창 밖으로 잘려 나간다. 단위 테스트가 이 약속을 지키는지 검사한다.
+ * 반대로 값을 키우면 창이 커져서 다른 앱의 터치를 더 많이 가로채므로,
+ * 꼭 필요한 만큼만 잡는다.
+ */
+object PoseBounds {
+    const val MAX_SCALE_X = 1.07f
+    const val MAX_SCALE_Y = 1.08f
+
+    /** 위로 뜨는 최대치 (캐릭터 높이 대비). */
+    const val MAX_OFFSET_UP_RATIO = 0.05f
+
+    /** 아래로 가라앉는 최대치 (캐릭터 높이 대비). */
+    const val MAX_OFFSET_DOWN_RATIO = 0.03f
+
+    const val MAX_ROTATION_DEG = 8f
+}
+
+/**
  * 동작 진행도(0~1)를 받아 자세를 계산한다.
  * [heightPx] 는 캐릭터 표시 높이로, 흔들림 폭을 크기에 비례시키는 데 쓴다.
  */
@@ -56,12 +86,15 @@ object PoseCalculator {
         val t = progress.coerceIn(0f, 1f)
         return when (action) {
             CharacterAction.IDLE, CharacterAction.BREATHE -> breathe(t, seed)
-            CharacterAction.JUMP -> Pose.NEUTRAL
+            CharacterAction.JUMP -> jumpPose(t)
             CharacterAction.WALK, CharacterAction.APPROACH -> walk(t, heightPx)
             CharacterAction.LOOK_AT -> lookAt(t)
             CharacterAction.DOZE -> doze(t, heightPx)
             CharacterAction.RHYTHM -> rhythm(t, heightPx)
             CharacterAction.SURPRISED -> surprised(t, heightPx)
+            CharacterAction.BUMP -> bump(t)
+            CharacterAction.LEAN -> lean(t, seed)
+            CharacterAction.PET -> pet(t, heightPx)
         }
     }
 
@@ -81,6 +114,15 @@ object PoseCalculator {
             scaleX = 1f - breath * 0.012f,
             scaleY = 1f + breath * 0.018f,
             rotationDeg = sin(phase * 0.5f) * 1.2f
+        )
+    }
+
+    /** 뛰어오를 때 살짝 늘어나고 착지하며 눌린다. */
+    private fun jumpPose(t: Float): Pose {
+        val stretch = sin(t * Math.PI.toFloat())
+        return Pose(
+            scaleX = 1f - stretch * 0.03f,
+            scaleY = 1f + stretch * 0.05f
         )
     }
 
@@ -105,7 +147,7 @@ object PoseCalculator {
         val phase = sin(t * 2f * Math.PI.toFloat())
         return Pose(
             scaleY = 0.97f + phase * 0.01f,
-            rotationDeg = 8f + phase * 2f,
+            rotationDeg = 6f + phase * 1.5f,
             offsetY = heightPx * 0.015f
         )
     }
@@ -123,8 +165,86 @@ object PoseCalculator {
         val pop = sin(t * Math.PI.toFloat())
         return Pose(
             scaleX = 1f + pop * 0.06f,
-            scaleY = 1f + pop * 0.10f,
+            scaleY = 1f + pop * 0.07f,
             offsetY = -pop * heightPx * 0.05f
+        )
+    }
+
+    /** 벽에 부딪혀 찌그러졌다가 반대로 돌아서는 느낌. */
+    private fun bump(t: Float): Pose {
+        val squash = sin(t * Math.PI.toFloat())
+        return Pose(
+            scaleX = 1f + squash * 0.06f,
+            scaleY = 1f - squash * 0.05f,
+            rotationDeg = squash * -4f
+        )
+    }
+
+    /** 가장자리에 비스듬히 기대어 쉰다. */
+    private fun lean(t: Float, seed: Float): Pose {
+        val sway = sin((t + seed) * 2f * Math.PI.toFloat())
+        return Pose(
+            scaleY = 1f + sway * 0.008f,
+            rotationDeg = 5f + sway * 1.5f
+        )
+    }
+
+    /** 쓰다듬어 줄 때 기분 좋게 몸을 흔든다. */
+    private fun pet(t: Float, heightPx: Float): Pose {
+        val wiggle = sin(t * 6f * Math.PI.toFloat())
+        return Pose(
+            scaleY = 1f + abs(wiggle) * 0.03f,
+            rotationDeg = wiggle * 5f,
+            offsetY = -abs(wiggle) * heightPx * 0.02f
+        )
+    }
+}
+
+/** 창 여백 계산 결과. */
+data class WindowPadding(val x: Float, val y: Float)
+
+/**
+ * 캐릭터 창에 얼마만큼의 여백이 필요한지 계산한다.
+ *
+ * 여백은 그대로 '다른 앱의 터치를 가로채는 면적'이 되므로 넉넉히 잡으면 안 되고,
+ * 모자라면 캐릭터가 잘려 보인다. 그래서 [PoseBounds] 가 약속한 최대 변형에서
+ * 실제로 필요한 만큼만 계산한다.
+ *
+ * 회전과 확대의 기준점은 모두 발밑 가운데다.
+ * - 세로 확대는 위쪽으로만 커진다.
+ * - 회전은 발밑에서 가장 먼 머리 쪽 모서리를 가장 많이 밀어낸다.
+ */
+object WindowPaddingCalculator {
+
+    /** 여백이 0 이 되지 않도록 하는 최소치(px). */
+    const val MIN_PADDING_PX = 2f
+
+    /**
+     * 회전이 세로로 밀어내는 양은 가로보다 훨씬 작다.
+     * 머리 모서리가 호를 그리며 도는데 세로 성분이 작기 때문이다.
+     */
+    private const val VERTICAL_ROTATION_FACTOR = 0.35f
+
+    fun forCharacter(width: Float, height: Float): WindowPadding {
+        if (width <= 0f || height <= 0f) {
+            return WindowPadding(MIN_PADDING_PX, MIN_PADDING_PX)
+        }
+
+        val radians = Math.toRadians(PoseBounds.MAX_ROTATION_DEG.toDouble())
+        val sinTheta = kotlin.math.sin(radians).toFloat()
+        val pivotToHeadCorner = kotlin.math.hypot(width / 2f, height)
+        val rotationSpread = pivotToHeadCorner * sinTheta
+
+        val growSide = width * (PoseBounds.MAX_SCALE_X - 1f) / 2f
+        val growTop = height * (PoseBounds.MAX_SCALE_Y - 1f) +
+            height * PoseBounds.MAX_OFFSET_UP_RATIO
+        val growBottom = height * PoseBounds.MAX_OFFSET_DOWN_RATIO
+
+        return WindowPadding(
+            x = (growSide + rotationSpread).coerceAtLeast(MIN_PADDING_PX),
+            // 세로 여백은 위아래가 같아야 그림이 창 한가운데에 온다.
+            y = (maxOf(growTop, growBottom) + rotationSpread * VERTICAL_ROTATION_FACTOR)
+                .coerceAtLeast(MIN_PADDING_PX)
         )
     }
 }

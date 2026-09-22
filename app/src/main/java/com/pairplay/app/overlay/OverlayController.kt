@@ -11,9 +11,12 @@ import com.pairplay.app.data.CharacterEntity
 import com.pairplay.app.data.OverlayMode
 import com.pairplay.app.data.OverlaySettings
 import com.pairplay.app.engine.CharacterAction
+import com.pairplay.app.engine.EffectEmitter
+import com.pairplay.app.engine.EffectKind
 import com.pairplay.app.engine.Pose
 import com.pairplay.app.engine.PoseCalculator
 import java.io.File
+import kotlin.math.abs
 import kotlin.random.Random
 
 /**
@@ -30,6 +33,7 @@ class OverlayController(
     private class Runtime(
         val entity: CharacterEntity,
         val window: CharacterWindow,
+        val effectWindow: EffectWindow,
         val bitmap: Bitmap?
     ) {
         var action: CharacterAction = CharacterAction.IDLE
@@ -38,9 +42,30 @@ class OverlayController(
         var facingRight: Boolean = true
         var walkFromX: Float = 0f
         var walkToX: Float = 0f
+
+        /** 이번 이동이 화면 가장자리에 막혀서 끝나는지. 끝나면 부딪히는 연출을 한다. */
+        var willHitWall: Boolean = false
+
         val seed: Float = Random.nextFloat()
         var displayHeight: Float = 0f
         var displayWidth: Float = 0f
+
+        /**
+         * 손가락이 붙잡고 있는 중(끌기/쓰다듬기).
+         * 이때는 스스로 걸어다니거나 동작을 바꾸지 않는다. 그러지 않으면
+         * 손가락과 자동 이동이 서로 잡아당겨 화면이 튄다.
+         */
+        var interactionHeld: Boolean = false
+
+        var heldAnchorX: Float = 0f
+        var heldAnchorY: Float = 0f
+
+        /** 동작이 바뀔 때 뚝 끊기지 않도록 직전 자세에서 부드럽게 넘어간다. */
+        var blendFrom: Pose = Pose.NEUTRAL
+        var blendStart: Long = 0L
+        var lastPose: Pose = Pose.NEUTRAL
+
+        val effects = EffectEmitter()
     }
 
     private val choreographer = Choreographer.getInstance()
@@ -55,12 +80,20 @@ class OverlayController(
     /** '일정 시간 숨김'이 끝났는지 주기적으로 확인하기 위한 시각. */
     private var lastVisibilityCheck = 0L
 
+    // 화면 크기는 매 프레임 물어볼 필요가 없다. 주기적으로만 갱신한다.
+    private var screenWidth = 0f
+    private var screenHeight = 0f
+
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             if (!running) return
             tick(System.currentTimeMillis())
             choreographer.postFrameCallback(this)
         }
+    }
+
+    init {
+        refreshScreenSize()
     }
 
     // ---------------------------------------------------------------- 구성
@@ -93,26 +126,41 @@ class OverlayController(
         applySettingsToWindows()
         if (previous.scalePercent != newSettings.scalePercent) {
             // 크기가 바뀌면 이미지 크기도 다시 계산해야 한다.
-            listOfNotNull(runtimeA, runtimeB).forEach { applyBitmapSize(it) }
+            runtimeA?.let { applyBitmapSize(it) }
+            runtimeB?.let { applyBitmapSize(it) }
         }
         updateVisibility()
     }
 
+    /**
+     * 음악 재생 상태가 바뀌었다.
+     *
+     * 재생이 시작되면 바로 리듬을 타게 한다(반응이 빨라야 자연스럽다).
+     * 멈출 때는 동작을 중간에 끊지 않는다. 하던 동작을 끝까지 마치고 나서
+     * 다음 동작부터 리듬을 고르지 않게 한다. 그래야 '뚝' 끊기지 않는다.
+     */
     fun setMusicPlaying(playing: Boolean) {
         if (musicPlaying == playing) return
         musicPlaying = playing
         if (!settings.musicReactionEnabled) return
-        listOfNotNull(runtimeA, runtimeB).forEach { runtime ->
-            startAction(
-                runtime,
-                if (playing) CharacterAction.RHYTHM else CharacterAction.IDLE
-            )
+
+        if (playing) {
+            val now = System.currentTimeMillis()
+            forEachRuntime { runtime ->
+                if (!runtime.interactionHeld) {
+                    startAction(runtime, CharacterAction.RHYTHM, now)
+                    runtime.effects.spawn(EffectKind.NOTE, 3, now)
+                }
+            }
         }
+        // 멈출 때는 아무것도 끊지 않는다. tick 이 동작을 끝까지 재생한 뒤
+        // chooseNextAction 이 리듬 대신 다른 동작을 고른다.
     }
 
     fun start() {
         if (running) return
         running = true
+        refreshScreenSize()
         choreographer.postFrameCallback(frameCallback)
     }
 
@@ -131,6 +179,11 @@ class OverlayController(
 
     // ---------------------------------------------------------------- 내부 구성
 
+    private inline fun forEachRuntime(block: (Runtime) -> Unit) {
+        runtimeA?.let(block)
+        runtimeB?.let(block)
+    }
+
     private fun build(entity: CharacterEntity, slot: CharacterWindow.Slot): Runtime? {
         val bitmap = loadBitmap(entity.imagePath)
         if (bitmap == null) {
@@ -138,14 +191,17 @@ class OverlayController(
             return null
         }
         val window = CharacterWindow(context, windowManager, slot, this)
-        val runtime = Runtime(entity, window, bitmap)
+        val effectWindow = EffectWindow(context, windowManager)
+        val runtime = Runtime(entity, window, effectWindow, bitmap)
         applyBitmapSize(runtime)
         window.attach()
-        startAction(runtime, CharacterAction.IDLE)
+        effectWindow.attach()
+        startAction(runtime, CharacterAction.IDLE, System.currentTimeMillis())
         return runtime
     }
 
     private fun teardown(runtime: Runtime) {
+        runtime.effectWindow.detach()
         runtime.window.detach()
         runtime.bitmap?.takeIf { !it.isRecycled }?.recycle()
     }
@@ -182,12 +238,15 @@ class OverlayController(
             anchorYRatio = runtime.entity.anchorYRatio,
             flipped = runtime.entity.flipHorizontal
         )
+
+        runtime.effectWindow.setSize(
+            (widthPx * EFFECT_WIDTH_FACTOR).toInt().coerceAtLeast(MIN_EFFECT_SIZE_PX),
+            (heightPx * EFFECT_HEIGHT_FACTOR).toInt().coerceAtLeast(MIN_EFFECT_SIZE_PX)
+        )
     }
 
     private fun applySettingsToWindows() {
-        listOfNotNull(runtimeA, runtimeB).forEach { runtime ->
-            runtime.window.setOpacity(settings.opacity)
-        }
+        forEachRuntime { it.window.setOpacity(settings.opacity) }
         runtimeB?.window?.setVisible(settings.mode == OverlayMode.PAIR)
     }
 
@@ -195,17 +254,23 @@ class OverlayController(
         val hidden = settings.isHiddenAt(System.currentTimeMillis())
         runtimeA?.window?.setVisible(!hidden)
         runtimeB?.window?.setVisible(!hidden && settings.mode == OverlayMode.PAIR)
+        if (hidden) {
+            forEachRuntime {
+                it.effects.clear()
+                it.effectWindow.setEffects(emptyList())
+            }
+        }
     }
 
     private fun placeInitialPositions() {
-        val bounds = screenSize()
-        val floorY = bounds.second * FLOOR_RATIO
+        refreshScreenSize()
+        val floorY = screenHeight * FLOOR_RATIO
 
         runtimeA?.let { runtime ->
             val x = if (settings.positionAX != OverlaySettings.UNSET_POSITION) {
                 settings.positionAX.toFloat()
             } else {
-                bounds.first * 0.32f
+                screenWidth * 0.32f
             }
             val y = if (settings.positionAY != OverlaySettings.UNSET_POSITION) {
                 settings.positionAY.toFloat()
@@ -213,13 +278,14 @@ class OverlayController(
                 floorY
             }
             runtime.window.setAnchor(clampX(x, runtime), clampY(y))
+            runtime.window.commit()
         }
 
         runtimeB?.let { runtime ->
             val x = if (settings.positionBX != OverlaySettings.UNSET_POSITION) {
                 settings.positionBX.toFloat()
             } else {
-                bounds.first * 0.62f
+                screenWidth * 0.62f
             }
             val y = if (settings.positionBY != OverlaySettings.UNSET_POSITION) {
                 settings.positionBY.toFloat()
@@ -227,96 +293,157 @@ class OverlayController(
                 floorY
             }
             runtime.window.setAnchor(clampX(x, runtime), clampY(y))
+            runtime.window.commit()
         }
     }
 
     // ---------------------------------------------------------------- 애니메이션 루프
 
     private fun tick(now: Long) {
-        // 숨김 시간이 지났는지 매 프레임 확인할 필요는 없다.
+        // 숨김 시간이 지났는지, 화면이 돌아갔는지를 매 프레임 확인할 필요는 없다.
         if (now - lastVisibilityCheck > VISIBILITY_CHECK_INTERVAL_MS) {
             lastVisibilityCheck = now
+            refreshScreenSize()
             updateVisibility()
         }
 
-        listOfNotNull(runtimeA, runtimeB).forEach { runtime ->
-            val elapsed = now - runtime.actionStart
-            val progress = if (runtime.actionDuration <= 0L) {
-                1f
-            } else {
-                (elapsed.toFloat() / runtime.actionDuration).coerceIn(0f, 1f)
-            }
+        runtimeA?.let { updateRuntime(it, now) }
+        runtimeB?.let { updateRuntime(it, now) }
+    }
+
+    private fun updateRuntime(runtime: Runtime, now: Long) {
+        val elapsed = now - runtime.actionStart
+        val duration = runtime.actionDuration.coerceAtLeast(1L)
+
+        val progress: Float
+        if (runtime.interactionHeld) {
+            // 붙잡고 있는 동안에는 같은 동작을 반복 재생만 한다.
+            progress = (elapsed % duration).toFloat() / duration
+        } else {
+            progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
 
             if (runtime.action.moves) {
                 val eased = easeInOut(progress)
                 val x = runtime.walkFromX + (runtime.walkToX - runtime.walkFromX) * eased
                 runtime.window.setAnchor(clampX(x, runtime), runtime.window.anchorY)
             }
+        }
 
-            runtime.window.liftPx = if (runtime.action == CharacterAction.JUMP) {
+        val rawPose = PoseCalculator.pose(
+            action = runtime.action,
+            progress = progress,
+            heightPx = runtime.displayHeight,
+            seed = runtime.seed
+        )
+        val pose = blended(runtime, rawPose, now)
+        runtime.lastPose = pose
+
+        runtime.window.setPose(pose)
+        runtime.window.setFacingRight(runtime.facingRight)
+        runtime.window.setLift(
+            if (runtime.action == CharacterAction.JUMP) {
                 PoseCalculator.jumpHeight(progress, runtime.displayHeight)
             } else {
                 0f
             }
+        )
+        // 위치와 점프 높이를 한 번에 반영한다.
+        runtime.window.commit()
 
-            runtime.window.setPose(
-                PoseCalculator.pose(
-                    action = runtime.action,
-                    progress = progress,
-                    heightPx = runtime.displayHeight,
-                    seed = runtime.seed
-                )
-            )
-            runtime.window.setFacingRight(runtime.facingRight)
+        syncEffectWindow(runtime, now)
 
-            if (progress >= 1f) {
-                startAction(runtime, chooseNextAction(runtime))
-            }
+        if (!runtime.interactionHeld && progress >= 1f) {
+            advanceAction(runtime, now)
         }
     }
 
-    private fun startAction(runtime: Runtime, action: CharacterAction) {
+    /** 동작이 바뀐 직후에는 직전 자세에서 새 자세로 부드럽게 건너간다. */
+    private fun blended(runtime: Runtime, target: Pose, now: Long): Pose {
+        val sinceBlend = now - runtime.blendStart
+        if (sinceBlend >= BLEND_MS) return target
+        val k = easeInOut((sinceBlend.toFloat() / BLEND_MS).coerceIn(0f, 1f))
+        val from = runtime.blendFrom
+        return Pose(
+            scaleX = from.scaleX + (target.scaleX - from.scaleX) * k,
+            scaleY = from.scaleY + (target.scaleY - from.scaleY) * k,
+            rotationDeg = from.rotationDeg + (target.rotationDeg - from.rotationDeg) * k,
+            offsetY = from.offsetY + (target.offsetY - from.offsetY) * k
+        )
+    }
+
+    private fun syncEffectWindow(runtime: Runtime, now: Long) {
+        val rendered = runtime.effects.render(now)
+        runtime.effectWindow.setEffects(rendered)
+        if (rendered.isEmpty()) return
+
+        val width = runtime.displayWidth * EFFECT_WIDTH_FACTOR
+        val height = runtime.displayHeight * EFFECT_HEIGHT_FACTOR
+        runtime.effectWindow.setPosition(
+            runtime.window.anchorX - width / 2f,
+            runtime.window.headTopY - height + runtime.displayHeight * EFFECT_OVERLAP_RATIO
+        )
+    }
+
+    /** 동작이 끝났다. 벽에 부딪혔으면 그 연출부터 하고, 아니면 다음 동작을 고른다. */
+    private fun advanceAction(runtime: Runtime, now: Long) {
+        if (runtime.willHitWall) {
+            runtime.willHitWall = false
+            runtime.facingRight = !runtime.facingRight
+            runtime.effects.spawn(EffectKind.EXCLAIM, 1, now)
+            startAction(runtime, CharacterAction.BUMP, now)
+            return
+        }
+        startAction(runtime, chooseNextAction(runtime), now)
+    }
+
+    private fun startAction(runtime: Runtime, action: CharacterAction, now: Long) {
+        runtime.blendFrom = runtime.lastPose
+        runtime.blendStart = now
         runtime.action = action
-        runtime.actionStart = System.currentTimeMillis()
+        runtime.actionStart = now
         runtime.actionDuration = action.defaultDurationMs
-        runtime.window.setPose(Pose.NEUTRAL)
 
         when (action) {
-            CharacterAction.WALK -> {
-                val bounds = screenSize()
-                val distance = bounds.first * WALK_DISTANCE_RATIO
-                val direction = if (Random.nextBoolean()) 1f else -1f
-                runtime.walkFromX = runtime.window.anchorX
-                runtime.walkToX = clampX(runtime.window.anchorX + distance * direction, runtime)
-                runtime.facingRight = runtime.walkToX >= runtime.walkFromX
-            }
-
-            CharacterAction.APPROACH -> {
-                val other = otherOf(runtime)
-                runtime.walkFromX = runtime.window.anchorX
-                runtime.walkToX = if (other != null) {
-                    val gap = (runtime.displayWidth + other.displayWidth) * 0.55f
-                    val target = if (other.window.anchorX >= runtime.window.anchorX) {
-                        other.window.anchorX - gap
-                    } else {
-                        other.window.anchorX + gap
-                    }
-                    clampX(target, runtime)
-                } else {
-                    runtime.window.anchorX
-                }
-                runtime.facingRight = runtime.walkToX >= runtime.walkFromX
-            }
-
+            CharacterAction.WALK -> setupWalk(runtime)
+            CharacterAction.APPROACH -> setupApproach(runtime)
             CharacterAction.LOOK_AT -> {
-                val other = otherOf(runtime)
-                if (other != null) {
+                otherOf(runtime)?.let { other ->
                     runtime.facingRight = other.window.anchorX >= runtime.window.anchorX
                 }
             }
 
             else -> Unit
         }
+    }
+
+    private fun setupWalk(runtime: Runtime) {
+        val distance = screenWidth * WALK_DISTANCE_RATIO
+        val direction = if (Random.nextBoolean()) 1f else -1f
+        val desired = runtime.window.anchorX + distance * direction
+        val clamped = clampX(desired, runtime)
+        runtime.walkFromX = runtime.window.anchorX
+        runtime.walkToX = clamped
+        runtime.facingRight = clamped >= runtime.walkFromX
+        // 가고 싶은 곳까지 못 갔다면 화면 끝에 막힌 것이다.
+        runtime.willHitWall = abs(desired - clamped) > WALL_TOLERANCE_PX
+    }
+
+    private fun setupApproach(runtime: Runtime) {
+        val other = otherOf(runtime)
+        runtime.walkFromX = runtime.window.anchorX
+        runtime.willHitWall = false
+        runtime.walkToX = if (other != null) {
+            val gap = (runtime.displayWidth + other.displayWidth) * 0.55f
+            val target = if (other.window.anchorX >= runtime.window.anchorX) {
+                other.window.anchorX - gap
+            } else {
+                other.window.anchorX + gap
+            }
+            clampX(target, runtime)
+        } else {
+            runtime.window.anchorX
+        }
+        runtime.facingRight = runtime.walkToX >= runtime.walkFromX
     }
 
     /**
@@ -337,6 +464,9 @@ class OverlayController(
             add(CharacterAction.WALK to 10 + traits.traitEnergy / 5)
             add(CharacterAction.JUMP to 4 + traits.traitMischief / 8)
             add(CharacterAction.DOZE to 6 + (100 - traits.traitEnergy) / 8)
+            if (isNearEdge(runtime)) {
+                add(CharacterAction.LEAN to 14)
+            }
             if (hasPartner) {
                 add(CharacterAction.LOOK_AT to 8 + traits.traitWarmth / 8)
                 add(CharacterAction.APPROACH to 4 + traits.traitAssertiveness / 10)
@@ -353,6 +483,13 @@ class OverlayController(
         return CharacterAction.IDLE
     }
 
+    private fun isNearEdge(runtime: Runtime): Boolean {
+        if (screenWidth <= 0f) return false
+        val x = runtime.window.anchorX
+        val margin = runtime.displayWidth * 0.6f + screenWidth * 0.03f
+        return x < margin || x > screenWidth - margin
+    }
+
     private fun otherOf(runtime: Runtime): Runtime? =
         if (runtime === runtimeA) runtimeB else runtimeA
 
@@ -360,11 +497,16 @@ class OverlayController(
 
     override fun onTap(slot: CharacterWindow.Slot) {
         val runtime = runtimeOf(slot) ?: return
-        startAction(runtime, CharacterAction.SURPRISED)
+        val now = System.currentTimeMillis()
+        startAction(runtime, CharacterAction.SURPRISED, now)
+        runtime.effects.spawn(EffectKind.HEART, 2, now)
+
         // 짝이 있으면 놀란 쪽을 바라본다.
         otherOf(runtime)?.let { other ->
-            other.facingRight = runtime.window.anchorX >= other.window.anchorX
-            startAction(other, CharacterAction.LOOK_AT)
+            if (!other.interactionHeld) {
+                other.facingRight = runtime.window.anchorX >= other.window.anchorX
+                startAction(other, CharacterAction.LOOK_AT, now)
+            }
         }
     }
 
@@ -375,7 +517,19 @@ class OverlayController(
     }
 
     override fun onDragStart(slot: CharacterWindow.Slot) {
-        runtimeOf(slot)?.let { startAction(it, CharacterAction.IDLE) }
+        val runtime = runtimeOf(slot) ?: return
+        val now = System.currentTimeMillis()
+        runtime.interactionHeld = true
+        runtime.heldAnchorX = runtime.window.anchorX
+        runtime.heldAnchorY = runtime.window.anchorY
+        startAction(runtime, CharacterAction.IDLE, now)
+
+        if (settings.linkedDrag) {
+            otherOf(runtime)?.let { other ->
+                other.interactionHeld = true
+                startAction(other, CharacterAction.IDLE, now)
+            }
+        }
     }
 
     override fun onDrag(slot: CharacterWindow.Slot, deltaX: Float, deltaY: Float) {
@@ -387,6 +541,40 @@ class OverlayController(
     }
 
     override fun onDragEnd(slot: CharacterWindow.Slot) {
+        releaseHold()
+        persistPositions()
+    }
+
+    override fun onPetStart(slot: CharacterWindow.Slot) {
+        val runtime = runtimeOf(slot) ?: return
+        val now = System.currentTimeMillis()
+        // 쓰다듬기로 판정되기 전까지 조금 끌려간 만큼을 되돌린다.
+        runtime.window.setAnchor(runtime.heldAnchorX, runtime.heldAnchorY)
+        runtime.window.commit()
+        runtime.interactionHeld = true
+        startAction(runtime, CharacterAction.PET, now)
+    }
+
+    override fun onPetTick(slot: CharacterWindow.Slot) {
+        val runtime = runtimeOf(slot) ?: return
+        runtime.effects.spawn(EffectKind.HEART, 1, System.currentTimeMillis())
+    }
+
+    override fun onPetEnd(slot: CharacterWindow.Slot) {
+        releaseHold()
+    }
+
+    private fun releaseHold() {
+        val now = System.currentTimeMillis()
+        forEachRuntime { runtime ->
+            if (runtime.interactionHeld) {
+                runtime.interactionHeld = false
+                startAction(runtime, CharacterAction.IDLE, now)
+            }
+        }
+    }
+
+    private fun persistPositions() {
         runtimeA?.let {
             onPositionPersist(
                 CharacterWindow.Slot.A,
@@ -408,6 +596,8 @@ class OverlayController(
             clampX(runtime.window.anchorX + deltaX, runtime),
             clampY(runtime.window.anchorY + deltaY)
         )
+        // 손가락을 따라가는 동안에는 바로바로 반영해야 끌리는 느낌이 산다.
+        runtime.window.commit()
     }
 
     private fun runtimeOf(slot: CharacterWindow.Slot): Runtime? = when (slot) {
@@ -417,31 +607,28 @@ class OverlayController(
 
     // ---------------------------------------------------------------- 화면 경계
 
-    private fun screenSize(): Pair<Float, Float> {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+    private fun refreshScreenSize() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val bounds = windowManager.currentWindowMetrics.bounds
-            bounds.width().toFloat() to bounds.height().toFloat()
+            screenWidth = bounds.width().toFloat()
+            screenHeight = bounds.height().toFloat()
         } else {
             val metrics = context.resources.displayMetrics
-            metrics.widthPixels.toFloat() to metrics.heightPixels.toFloat()
+            screenWidth = metrics.widthPixels.toFloat()
+            screenHeight = metrics.heightPixels.toFloat()
         }
     }
 
     /** 캐릭터가 화면 밖으로 나가지 않게 기준점을 가둔다. */
     private fun clampX(x: Float, runtime: Runtime): Float {
-        val (screenWidth, _) = screenSize()
         val anchorRatio = runtime.entity.anchorXRatio.coerceIn(0f, 1f)
-        val left = runtime.displayWidth * anchorRatio
-        val right = runtime.displayWidth * (1f - anchorRatio)
-        val min = left
-        val max = screenWidth - right
+        val min = runtime.displayWidth * anchorRatio
+        val max = screenWidth - runtime.displayWidth * (1f - anchorRatio)
         return if (min > max) screenWidth / 2f else x.coerceIn(min, max)
     }
 
-    private fun clampY(y: Float): Float {
-        val (_, screenHeight) = screenSize()
-        return y.coerceIn(screenHeight * MIN_Y_RATIO, screenHeight * MAX_Y_RATIO)
-    }
+    private fun clampY(y: Float): Float =
+        y.coerceIn(screenHeight * MIN_Y_RATIO, screenHeight * MAX_Y_RATIO)
 
     private fun easeInOut(t: Float): Float =
         if (t < 0.5f) 2f * t * t else 1f - (-2f * t + 2f) * (-2f * t + 2f) / 2f
@@ -456,5 +643,16 @@ class OverlayController(
         private const val VISIBILITY_CHECK_INTERVAL_MS = 500L
         private const val MIN_Y_RATIO = 0.08f
         private const val MAX_Y_RATIO = 0.95f
+
+        /** 동작 전환을 부드럽게 잇는 시간. */
+        private const val BLEND_MS = 260L
+
+        /** 이만큼 못 갔으면 화면 끝에 막힌 것으로 본다. */
+        private const val WALL_TOLERANCE_PX = 2f
+
+        private const val EFFECT_WIDTH_FACTOR = 1.9f
+        private const val EFFECT_HEIGHT_FACTOR = 0.9f
+        private const val EFFECT_OVERLAP_RATIO = 0.12f
+        private const val MIN_EFFECT_SIZE_PX = 120
     }
 }

@@ -140,6 +140,21 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * 두 캐릭터의 키를 같은 값으로 맞춘다.
+     * 이미지 여백은 등록할 때 잘라내므로, 높이를 같게 하면 실제로 같은 키로 보인다.
+     */
+    fun matchHeights(targetHeightDp: Int) {
+        val state = _uiState.value
+        val height = targetHeightDp.coerceIn(MIN_HEIGHT_DP, MAX_HEIGHT_DP)
+        viewModelScope.launch {
+            listOfNotNull(state.characterA, state.characterB)
+                .filter { it.displayHeightDp != height }
+                .forEach { repository.updateCharacter(it.copy(displayHeightDp = height)) }
+            message.value = "두 캐릭터의 키를 ${height}dp 로 맞췄어요."
+        }
+    }
+
     fun setPair(aId: Long, bId: Long?) {
         viewModelScope.launch { repository.setActivePair(aId, bId) }
     }
@@ -195,6 +210,11 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
 
     fun consumeMessage() {
         message.value = null
+    }
+
+    companion object {
+        private const val MIN_HEIGHT_DP = 60
+        private const val MAX_HEIGHT_DP = 320
     }
 
     private fun describe(reason: ImageImporter.Reason): String = when (reason) {

@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -11,6 +12,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import com.pairplay.app.engine.Pose
+import com.pairplay.app.engine.WindowPaddingCalculator
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -37,6 +39,14 @@ class CharacterWindow(
         fun onDragStart(slot: Slot)
         fun onDrag(slot: Slot, deltaX: Float, deltaY: Float)
         fun onDragEnd(slot: Slot)
+
+        /** 문지르는 동작이 감지됨. 끌기를 취소하고 쓰다듬기로 바꿔야 한다. */
+        fun onPetStart(slot: Slot)
+
+        /** 쓰다듬는 중. 표시를 띄우기 좋은 시점마다 불린다. */
+        fun onPetTick(slot: Slot)
+
+        fun onPetEnd(slot: Slot)
     }
 
     val view = CharacterView(context)
@@ -64,27 +74,41 @@ class CharacterWindow(
 
     /** 점프 등으로 잠깐 띄우는 높이(px). 창 위치에 더해진다. */
     var liftPx = 0f
-        set(value) {
-            field = value
-            applyPosition()
-        }
+        private set
 
     private var displayWidth = 0f
     private var displayHeight = 0f
     private var anchorXRatio = 0.5f
     private var anchorYRatio = 1f
-    private var padding = 0f
+    private var paddingX = 0f
+    private var paddingY = 0f
+
+    /**
+     * 마지막으로 실제 창에 반영한 위치.
+     * 값이 그대로면 updateViewLayout 을 부르지 않는다. 매 프레임 불필요하게 창을
+     * 옮기면 화면이 튀고 버벅인다.
+     */
+    private var committedX = Int.MIN_VALUE
+    private var committedY = Int.MIN_VALUE
 
     // --- 터치 처리 상태 ---
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
-    private var downX = 0f
-    private var downY = 0f
+    private var lastX = 0f
+    private var lastY = 0f
+    private var downRawX = 0f
+    private var downRawY = 0f
     private var dragging = false
     private var longPressFired = false
 
+    // --- 쓰다듬기 감지 ---
+    private var petting = false
+    private var reversalCount = 0
+    private var lastMoveSign = 0
+    private var lastPetTickMs = 0L
+
     private val longPressRunnable = Runnable {
-        if (!dragging) {
+        if (!dragging && !petting) {
             longPressFired = true
             callbacks.onLongPress(slot)
         }
@@ -106,13 +130,17 @@ class CharacterWindow(
         this.displayHeight = displayHeightPx
         this.anchorXRatio = anchorXRatio.coerceIn(0f, 1f)
         this.anchorYRatio = anchorYRatio.coerceIn(0f, 1f)
-        // 기울기와 확대로 이미지가 창 밖으로 잘리지 않을 만큼만 여백을 둔다.
-        // 여백은 터치를 가로채는 영역이므로 최소한으로 잡는다.
-        this.padding = (maxOf(displayWidthPx, displayHeightPx) * EDGE_PADDING_RATIO)
+
+        val padding = WindowPaddingCalculator.forCharacter(displayWidthPx, displayHeightPx)
+        this.paddingX = padding.x
+        this.paddingY = padding.y
+
         view.flippedByUser = flipped
-        view.edgePadding = padding
+        view.setEdgePadding(paddingX, paddingY)
         view.setCharacterBitmap(bitmap, displayWidthPx, displayHeightPx)
-        applyPosition()
+        committedX = Int.MIN_VALUE
+        committedY = Int.MIN_VALUE
+        commit()
     }
 
     fun setPose(pose: Pose) {
@@ -128,10 +156,37 @@ class CharacterWindow(
         view.alpha = opacity.coerceIn(0.05f, 1f)
     }
 
+    /** 위치만 기록한다. 실제 창 이동은 [commit] 에서 한 번에 한다. */
     fun setAnchor(x: Float, y: Float) {
         anchorX = x
         anchorY = y
-        applyPosition()
+    }
+
+    fun setLift(lift: Float) {
+        liftPx = lift
+    }
+
+    /**
+     * 기록해 둔 위치를 실제 창에 반영한다.
+     * 한 프레임에 한 번만 불러야 한다. 위치와 점프 높이를 따로 반영하면
+     * 프레임당 창을 두 번 옮기게 되어 화면이 튄다.
+     */
+    fun commit() {
+        val x = (anchorX - displayWidth * anchorXRatio - paddingX).roundToInt()
+        val y = (anchorY - displayHeight * anchorYRatio - paddingY - liftPx).roundToInt()
+        if (x == committedX && y == committedY) return
+
+        committedX = x
+        committedY = y
+        params.x = x
+        params.y = y
+        if (added) {
+            try {
+                windowManager.updateViewLayout(view, params)
+            } catch (e: IllegalArgumentException) {
+                Log.w(TAG, "창 위치를 갱신할 수 없습니다", e)
+            }
+        }
     }
 
     fun attach() {
@@ -165,78 +220,128 @@ class CharacterWindow(
 
     val isAttached: Boolean get() = added
 
-    /** 창이 차지하는 전체 크기(여백 포함). 화면 밖으로 나가지 않게 하는 데 쓴다. */
-    val windowWidth: Float get() = displayWidth + padding * 2f
-    val windowHeight: Float get() = displayHeight + padding * 2f
+    /** 캐릭터 그림이 실제로 차지하는 크기(여백 제외). */
+    val characterWidth: Float get() = displayWidth
+    val characterHeight: Float get() = displayHeight
 
-    private fun applyPosition() {
-        params.x = (anchorX - displayWidth * anchorXRatio - padding).roundToInt()
-        params.y = (anchorY - displayHeight * anchorYRatio - padding - liftPx).roundToInt()
-        if (added) {
-            try {
-                windowManager.updateViewLayout(view, params)
-            } catch (e: IllegalArgumentException) {
-                Log.w(TAG, "창 위치를 갱신할 수 없음", e)
-            }
-        }
-    }
+    /** 머리 꼭대기의 화면상 세로 위치. 표시 창을 올려놓을 자리를 잡는 데 쓴다. */
+    val headTopY: Float
+        get() = anchorY - displayHeight * anchorYRatio - liftPx
 
     private fun handleTouch(v: View, event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downX = event.rawX
-                downY = event.rawY
+                lastX = event.rawX
+                lastY = event.rawY
+                downRawX = event.rawX
+                downRawY = event.rawY
                 dragging = false
+                petting = false
                 longPressFired = false
+                reversalCount = 0
+                lastMoveSign = 0
                 v.postDelayed(longPressRunnable, longPressTimeout)
                 return true
             }
 
             MotionEvent.ACTION_MOVE -> {
-                val dx = event.rawX - downX
-                val dy = event.rawY - downY
-                if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                val dx = event.rawX - lastX
+                val dy = event.rawY - lastY
+
+                updatePettingDetection(dx, event.rawX)
+
+                if (petting) {
+                    lastX = event.rawX
+                    lastY = event.rawY
+                    maybePetTick()
+                    return true
+                }
+
+                if (!dragging &&
+                    (abs(event.rawX - downRawX) > touchSlop || abs(event.rawY - downRawY) > touchSlop)
+                ) {
                     dragging = true
                     v.removeCallbacks(longPressRunnable)
                     callbacks.onDragStart(slot)
                 }
                 if (dragging) {
                     callbacks.onDrag(slot, dx, dy)
-                    downX = event.rawX
-                    downY = event.rawY
+                    lastX = event.rawX
+                    lastY = event.rawY
                 }
                 return true
             }
 
             MotionEvent.ACTION_UP -> {
                 v.removeCallbacks(longPressRunnable)
-                if (dragging) {
-                    callbacks.onDragEnd(slot)
-                } else if (!longPressFired) {
-                    v.performClick()
-                    callbacks.onTap(slot)
+                when {
+                    petting -> callbacks.onPetEnd(slot)
+                    dragging -> callbacks.onDragEnd(slot)
+                    !longPressFired -> {
+                        v.performClick()
+                        callbacks.onTap(slot)
+                    }
                 }
                 dragging = false
+                petting = false
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
                 v.removeCallbacks(longPressRunnable)
-                if (dragging) callbacks.onDragEnd(slot)
+                if (petting) callbacks.onPetEnd(slot) else if (dragging) callbacks.onDragEnd(slot)
                 dragging = false
+                petting = false
                 return true
             }
         }
         return false
     }
 
+    /**
+     * 제자리에서 좌우로 여러 번 문지르면 끌기가 아니라 쓰다듬기로 본다.
+     * 옮기려는 동작과 헷갈리지 않도록, 손가락이 처음 자리에서 크게 벗어나지 않은
+     * 경우에만 쓰다듬기로 인정한다.
+     */
+    private fun updatePettingDetection(dx: Float, rawX: Float) {
+        if (petting) return
+        if (abs(dx) < MIN_RUB_PX) return
+
+        val sign = if (dx > 0) 1 else -1
+        if (lastMoveSign != 0 && sign != lastMoveSign) {
+            reversalCount++
+        }
+        lastMoveSign = sign
+
+        val stayedClose = abs(rawX - downRawX) < touchSlop * 4
+        if (reversalCount >= REVERSALS_FOR_PET && stayedClose) {
+            petting = true
+            dragging = false
+            lastPetTickMs = 0L
+            callbacks.onPetStart(slot)
+            maybePetTick()
+        }
+    }
+
+    private fun maybePetTick() {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastPetTickMs < PET_TICK_INTERVAL_MS) return
+        lastPetTickMs = now
+        callbacks.onPetTick(slot)
+    }
+
     companion object {
         private const val TAG = "CharacterWindow"
 
-        /** 창 여백 비율. 회전과 확대로 잘리지 않을 최소한. */
-        const val EDGE_PADDING_RATIO = 0.08f
+        /** 문지르기로 셀 최소 이동량(px). 손 떨림을 걸러낸다. */
+        private const val MIN_RUB_PX = 6f
 
-        private fun overlayWindowType(): Int =
+        /** 이만큼 방향이 바뀌면 쓰다듬는 것으로 본다. */
+        private const val REVERSALS_FOR_PET = 3
+
+        private const val PET_TICK_INTERVAL_MS = 260L
+
+        fun overlayWindowType(): Int =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             } else {
