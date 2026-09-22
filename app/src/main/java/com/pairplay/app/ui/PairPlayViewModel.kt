@@ -170,6 +170,7 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
     fun setOpacity(percent: Int) = launchSetting { settingsStore.setOpacityPercent(percent) }
     fun setLinkedDrag(linked: Boolean) = launchSetting { settingsStore.setLinkedDrag(linked) }
     fun setMusicReaction(on: Boolean) = launchSetting { settingsStore.setMusicReaction(on) }
+    fun setEffectsEnabled(on: Boolean) = launchSetting { settingsStore.setEffectsEnabled(on) }
     fun setOnboardingCompleted() = launchSetting { settingsStore.setOnboardingCompleted(true) }
 
     fun showAgain() = launchSetting { settingsStore.setHiddenUntil(0L) }

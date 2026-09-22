@@ -66,6 +66,29 @@ class EffectEmitterTest {
         }
     }
 
+    /**
+     * 그리는 쪽은 MAX_RENDER_SCALE 로 창 여백을 잡는다.
+     * 실제 크기가 이 값을 넘으면 표시가 창 가장자리에서 잘려 보인다.
+     */
+    @Test
+    fun `크기가 그리기 쪽 약속을 넘지 않는다`() {
+        val emitter = emitter()
+        for (kind in EffectKind.entries) {
+            emitter.spawn(kind, EffectEmitter.MAX_PARTICLES, 0L)
+        }
+        var seen = 0
+        for (time in 0..2000 step 10) {
+            for (effect in emitter.render(time.toLong())) {
+                seen++
+                assertTrue(
+                    "크기 ${effect.scale} 가 약속(${EffectEmitter.MAX_RENDER_SCALE})을 넘었습니다",
+                    effect.scale <= EffectEmitter.MAX_RENDER_SCALE
+                )
+            }
+        }
+        assertTrue("검사한 표시가 하나도 없습니다", seen > 0)
+    }
+
     @Test
     fun `지우면 즉시 비워진다`() {
         val emitter = emitter()

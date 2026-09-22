@@ -11,6 +11,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import com.pairplay.app.engine.EffectEmitter
 import com.pairplay.app.engine.EffectKind
 import com.pairplay.app.engine.RenderedEffect
 import kotlin.math.roundToInt
@@ -135,12 +136,25 @@ private class EffectView(context: Context) : View(context) {
 
         val w = width.toFloat()
         val h = height.toFloat()
-        // 표시 하나의 기준 크기. 창 너비에 비례시켜 캐릭터 크기를 따라가게 한다.
-        val unit = w * 0.22f
+        if (w <= 0f || h <= 0f) return
+
+        // 표시 하나의 기준 크기. 창의 짧은 변에 비례시켜 캐릭터 크기를 따라가게 한다.
+        val unit = minOf(w, h) * UNIT_RATIO
+        val maxSize = unit * EffectEmitter.MAX_RENDER_SCALE
+
+        // 표시가 창 가장자리에서 잘리면 '투명한 선 위로 떠오르는' 것처럼 보인다.
+        // 가장 큰 표시가 통째로 들어갈 만큼 안쪽으로 밀어 넣고 그 안에서만 움직인다.
+        // 하트는 위아래로 뻗는 모양이 달라 여백도 따로 잡는다.
+        val marginTop = maxSize * TOP_EXTENT
+        val marginBottom = maxSize * BOTTOM_EXTENT
+        val marginX = maxSize * SIDE_EXTENT
+
+        val bandWidth = (w - marginX * 2f).coerceAtLeast(1f)
+        val bandHeight = (h - marginTop - marginBottom).coerceAtLeast(1f)
 
         for (effect in effects) {
-            val cx = w * effect.xRatio
-            val cy = h * effect.yRatio
+            val cx = marginX + bandWidth * effect.xRatio
+            val cy = marginTop + bandHeight * effect.yRatio
             val size = unit * effect.scale
             if (size <= 0.5f) continue
 
@@ -227,3 +241,13 @@ private class EffectView(context: Context) : View(context) {
         canvas.drawCircle(cx, cy + size * 0.35f, w * 1.1f, paint)
     }
 }
+
+private const val UNIT_RATIO = 0.17f
+
+/** 표시가 중심에서 위로 뻗는 최대 비율 (하트가 가장 크다). */
+private const val TOP_EXTENT = 0.95f
+
+/** 아래로 뻗는 최대 비율. */
+private const val BOTTOM_EXTENT = 0.6f
+
+private const val SIDE_EXTENT = 0.6f

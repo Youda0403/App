@@ -107,6 +107,14 @@ fun OverlaySettingsScreen(
                 }
             }
 
+            SectionCard("하트와 음표") {
+                LabeledSwitch(
+                    label = "표시 띄우기",
+                    description = "톡 치거나 쓰다듬을 때 하트, 음악이 시작될 때 음표가 올라와요.",
+                    checked = settings.effectsEnabled
+                ) { viewModel.setEffectsEnabled(it) }
+            }
+
             SectionCard("음악 반응") {
                 LabeledSwitch(
                     label = "음악에 맞춰 움직이기",

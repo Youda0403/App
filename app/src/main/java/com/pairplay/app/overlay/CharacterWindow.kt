@@ -14,6 +14,7 @@ import android.view.WindowManager
 import com.pairplay.app.engine.Pose
 import com.pairplay.app.engine.WindowPaddingCalculator
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 /**
@@ -103,9 +104,12 @@ class CharacterWindow(
 
     // --- 쓰다듬기 감지 ---
     private var petting = false
+    private var pettingBlocked = false
     private var reversalCount = 0
+    private var firstReversalMs = 0L
     private var lastMoveSign = 0
     private var lastPetTickMs = 0L
+    private var maxDistFromDown = 0f
 
     private val longPressRunnable = Runnable {
         if (!dragging && !petting) {
@@ -237,9 +241,12 @@ class CharacterWindow(
                 downRawY = event.rawY
                 dragging = false
                 petting = false
+                pettingBlocked = false
                 longPressFired = false
                 reversalCount = 0
+                firstReversalMs = 0L
                 lastMoveSign = 0
+                maxDistFromDown = 0f
                 v.postDelayed(longPressRunnable, longPressTimeout)
                 return true
             }
@@ -248,7 +255,7 @@ class CharacterWindow(
                 val dx = event.rawX - lastX
                 val dy = event.rawY - lastY
 
-                updatePettingDetection(dx, event.rawX)
+                updatePettingDetection(dx, event.rawX, event.rawY)
 
                 if (petting) {
                     lastX = event.rawX
@@ -299,22 +306,41 @@ class CharacterWindow(
     }
 
     /**
-     * 제자리에서 좌우로 여러 번 문지르면 끌기가 아니라 쓰다듬기로 본다.
-     * 옮기려는 동작과 헷갈리지 않도록, 손가락이 처음 자리에서 크게 벗어나지 않은
-     * 경우에만 쓰다듬기로 인정한다.
+     * 제자리에서 좌우로 **빠르게** 여러 번 문지르면 끌기가 아니라 쓰다듬기로 본다.
+     *
+     * 옮기려는 동작이 쓰다듬기로 잘못 인식되지 않도록 세 겹으로 막는다.
+     * 1. 손가락이 처음 자리에서 한 번이라도 크게 벗어나면, 그 뒤로는 아무리
+     *    문질러도 쓰다듬기로 보지 않는다. 옮기는 중이라는 뜻이기 때문이다.
+     * 2. 방향 전환은 짧은 시간 안에 몰려서 일어나야 센다. 천천히 끌다가
+     *    우연히 몇 번 흔들린 것은 세지 않는다.
+     * 3. 아주 작은 흔들림은 손 떨림으로 보고 무시한다.
      */
-    private fun updatePettingDetection(dx: Float, rawX: Float) {
-        if (petting) return
+    private fun updatePettingDetection(dx: Float, rawX: Float, rawY: Float) {
+        if (petting || pettingBlocked) return
+
+        val distance = hypot(rawX - downRawX, rawY - downRawY)
+        if (distance > maxDistFromDown) maxDistFromDown = distance
+        if (maxDistFromDown > touchSlop * PET_MAX_TRAVEL_SLOPS) {
+            // 여기까지 왔으면 옮기려는 동작이다. 이번 터치에서는 쓰다듬기를 포기한다.
+            pettingBlocked = true
+            return
+        }
+
         if (abs(dx) < MIN_RUB_PX) return
 
+        val now = SystemClock.uptimeMillis()
         val sign = if (dx > 0) 1 else -1
         if (lastMoveSign != 0 && sign != lastMoveSign) {
-            reversalCount++
+            if (reversalCount == 0 || now - firstReversalMs > PET_REVERSAL_WINDOW_MS) {
+                reversalCount = 1
+                firstReversalMs = now
+            } else {
+                reversalCount++
+            }
         }
         lastMoveSign = sign
 
-        val stayedClose = abs(rawX - downRawX) < touchSlop * 4
-        if (reversalCount >= REVERSALS_FOR_PET && stayedClose) {
+        if (reversalCount >= REVERSALS_FOR_PET) {
             petting = true
             dragging = false
             lastPetTickMs = 0L
@@ -334,10 +360,16 @@ class CharacterWindow(
         private const val TAG = "CharacterWindow"
 
         /** 문지르기로 셀 최소 이동량(px). 손 떨림을 걸러낸다. */
-        private const val MIN_RUB_PX = 6f
+        private const val MIN_RUB_PX = 10f
 
         /** 이만큼 방향이 바뀌면 쓰다듬는 것으로 본다. */
         private const val REVERSALS_FOR_PET = 3
+
+        /** 방향 전환이 이 시간 안에 몰려야 쓰다듬기로 센다. */
+        private const val PET_REVERSAL_WINDOW_MS = 650L
+
+        /** 처음 자리에서 이 정도(터치 여유 배수)를 벗어나면 옮기는 동작으로 확정한다. */
+        private const val PET_MAX_TRAVEL_SLOPS = 3f
 
         private const val PET_TICK_INTERVAL_MS = 260L
 

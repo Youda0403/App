@@ -1,5 +1,6 @@
 package com.pairplay.app.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.pairplay.app.data.CharacterEntity
 import com.pairplay.app.ui.PairPlayUiState
@@ -69,7 +73,19 @@ fun SizeMatchScreen(
             SectionCard("나란히 보기") {
                 SideBySidePreview(a, b)
                 Text(
-                    "실제 화면에 뜨는 비율 그대로예요. 발밑을 맞춰 두었습니다.",
+                    if (b == null) {
+                        "${a.name}: ${a.displayHeightDp}dp"
+                    } else if (a.displayHeightDp == b.displayHeightDp) {
+                        "키가 같아요 (둘 다 ${a.displayHeightDp}dp). 둘 다 점선에 닿습니다."
+                    } else {
+                        "키가 달라요 — ${a.name} ${a.displayHeightDp}dp / " +
+                            "${b.name} ${b.displayHeightDp}dp"
+                    },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    "실제 화면에 뜨는 비율 그대로예요. 발밑을 맞추고, 큰 쪽 머리 높이에 " +
+                        "점선을 그어 두었습니다.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -138,24 +154,64 @@ fun SizeMatchScreen(
     }
 }
 
-/** 두 캐릭터를 발밑 기준으로 나란히 놓고 실제 비율대로 보여 준다. */
+/**
+ * 두 캐릭터를 발밑 기준으로 나란히 놓고 실제 비율대로 보여 준다.
+ *
+ * 숫자만으로는 맞았는지 알기 어려워서, 큰 쪽 머리 높이에 기준선을 하나 긋는다.
+ * 둘 다 선에 닿으면 키가 같은 것이고, 한쪽이 선 아래에 있으면 그만큼 작은 것이다.
+ */
 @Composable
 private fun SideBySidePreview(a: CharacterEntity, b: CharacterEntity?) {
     val tallest = maxOf(a.displayHeightDp, b?.displayHeightDp ?: 0).coerceAtLeast(1)
     // 미리보기 영역에 맞춰 줄이되, 작은 캐릭터를 억지로 키우지는 않는다.
     val factor = (PREVIEW_MAX_DP.toFloat() / tallest).coerceAtMost(1f)
+    val scaledTallest = tallest * factor
+
+    val density = LocalDensity.current
+    val guideColor = MaterialTheme.colorScheme.primary
+    val floorColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height((tallest * factor + PREVIEW_FLOOR_PADDING_DP).dp)
+            .height((scaledTallest + FLOOR_INSET_DP + TOP_INSET_DP).dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surface)
     ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val floorY = size.height - with(density) { FLOOR_INSET_DP.dp.toPx() }
+            val topY = floorY - with(density) { scaledTallest.dp.toPx() }
+
+            // 바닥선
+            drawLine(
+                color = floorColor,
+                start = Offset(0f, floorY),
+                end = Offset(size.width, floorY),
+                strokeWidth = with(density) { 1.dp.toPx() }
+            )
+            // 큰 쪽 키 기준선
+            drawLine(
+                color = guideColor,
+                start = Offset(0f, topY),
+                end = Offset(size.width, topY),
+                strokeWidth = with(density) { 1.dp.toPx() },
+                pathEffect = PathEffect.dashPathEffect(
+                    floatArrayOf(
+                        with(density) { 6.dp.toPx() },
+                        with(density) { 5.dp.toPx() }
+                    )
+                )
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(
+                    start = 12.dp,
+                    end = 12.dp,
+                    bottom = FLOOR_INSET_DP.dp
+                ),
             horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
             // 발밑을 맞춰야 키 차이가 제대로 보인다.
             verticalAlignment = Alignment.Bottom
@@ -170,4 +226,9 @@ private fun SideBySidePreview(a: CharacterEntity, b: CharacterEntity?) {
 
 private val HEIGHT_RANGE = 60..320
 private const val PREVIEW_MAX_DP = 200
-private const val PREVIEW_FLOOR_PADDING_DP = 16
+
+/** 바닥선과 미리보기 아래 끝 사이 간격. 캐릭터는 이 바닥선 위에 선다. */
+private const val FLOOR_INSET_DP = 10
+
+/** 기준선이 잘리지 않도록 위쪽에 두는 여유. */
+private const val TOP_INSET_DP = 10

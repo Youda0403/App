@@ -124,6 +124,12 @@ class OverlayController(
         val previous = settings
         settings = newSettings
         applySettingsToWindows()
+        if (previous.effectsEnabled && !newSettings.effectsEnabled) {
+            forEachRuntime {
+                it.effects.clear()
+                it.effectWindow.setEffects(emptyList())
+            }
+        }
         if (previous.scalePercent != newSettings.scalePercent) {
             // 크기가 바뀌면 이미지 크기도 다시 계산해야 한다.
             runtimeA?.let { applyBitmapSize(it) }
@@ -149,7 +155,7 @@ class OverlayController(
             forEachRuntime { runtime ->
                 if (!runtime.interactionHeld) {
                     startAction(runtime, CharacterAction.RHYTHM, now)
-                    runtime.effects.spawn(EffectKind.NOTE, 3, now)
+                    spawnEffect(runtime, EffectKind.NOTE, 3, now)
                 }
             }
         }
@@ -329,16 +335,26 @@ class OverlayController(
             }
         }
 
-        val rawPose = PoseCalculator.pose(
-            action = runtime.action,
-            progress = progress,
-            heightPx = runtime.displayHeight,
-            seed = runtime.seed
-        )
-        val pose = blended(runtime, rawPose, now)
-        runtime.lastPose = pose
-
-        runtime.window.setPose(pose)
+        if (runtime.interactionHeld && runtime.action != CharacterAction.PET) {
+            // 끌고 있는 동안에는 집어 든 자세로 고정한다.
+            // 창이 빠르게 움직이는 중에 안쪽 그림까지 매 프레임 다시 그리면,
+            // 창 이동과 그리기가 서로 다른 프레임에 반영되면서 튀어 보인다.
+            if (now - runtime.blendStart < BLEND_MS) {
+                val settle = blended(runtime, Pose.NEUTRAL, now)
+                runtime.lastPose = settle
+                runtime.window.setPose(settle)
+            }
+        } else {
+            val rawPose = PoseCalculator.pose(
+                action = runtime.action,
+                progress = progress,
+                heightPx = runtime.displayHeight,
+                seed = runtime.seed
+            )
+            val pose = blended(runtime, rawPose, now)
+            runtime.lastPose = pose
+            runtime.window.setPose(pose)
+        }
         runtime.window.setFacingRight(runtime.facingRight)
         runtime.window.setLift(
             if (runtime.action == CharacterAction.JUMP) {
@@ -389,7 +405,7 @@ class OverlayController(
         if (runtime.willHitWall) {
             runtime.willHitWall = false
             runtime.facingRight = !runtime.facingRight
-            runtime.effects.spawn(EffectKind.EXCLAIM, 1, now)
+            spawnEffect(runtime, EffectKind.EXCLAIM, 1, now)
             startAction(runtime, CharacterAction.BUMP, now)
             return
         }
@@ -490,6 +506,12 @@ class OverlayController(
         return x < margin || x > screenWidth - margin
     }
 
+    /** 표시는 설정에서 끌 수 있다. 띄우는 곳은 전부 이 창구를 거친다. */
+    private fun spawnEffect(runtime: Runtime, kind: EffectKind, count: Int, now: Long) {
+        if (!settings.effectsEnabled) return
+        runtime.effects.spawn(kind, count, now)
+    }
+
     private fun otherOf(runtime: Runtime): Runtime? =
         if (runtime === runtimeA) runtimeB else runtimeA
 
@@ -499,7 +521,7 @@ class OverlayController(
         val runtime = runtimeOf(slot) ?: return
         val now = System.currentTimeMillis()
         startAction(runtime, CharacterAction.SURPRISED, now)
-        runtime.effects.spawn(EffectKind.HEART, 2, now)
+        spawnEffect(runtime, EffectKind.HEART, 2, now)
 
         // 짝이 있으면 놀란 쪽을 바라본다.
         otherOf(runtime)?.let { other ->
@@ -557,7 +579,7 @@ class OverlayController(
 
     override fun onPetTick(slot: CharacterWindow.Slot) {
         val runtime = runtimeOf(slot) ?: return
-        runtime.effects.spawn(EffectKind.HEART, 1, System.currentTimeMillis())
+        spawnEffect(runtime, EffectKind.HEART, 1, System.currentTimeMillis())
     }
 
     override fun onPetEnd(slot: CharacterWindow.Slot) {
@@ -592,12 +614,14 @@ class OverlayController(
     }
 
     private fun moveBy(runtime: Runtime, deltaX: Float, deltaY: Float) {
+        // 위치만 기록하고 창은 옮기지 않는다.
+        // 터치 이벤트는 화면 주사율보다 자주 들어오는데, 그때마다 창을 옮기면
+        // 한 프레임 안에 여러 번 옮기라는 요청이 쌓여 빠르게 끌 때 튄다.
+        // 실제 이동은 매 프레임 한 번, tick 의 commit 에서만 한다.
         runtime.window.setAnchor(
             clampX(runtime.window.anchorX + deltaX, runtime),
             clampY(runtime.window.anchorY + deltaY)
         )
-        // 손가락을 따라가는 동안에는 바로바로 반영해야 끌리는 느낌이 산다.
-        runtime.window.commit()
     }
 
     private fun runtimeOf(slot: CharacterWindow.Slot): Runtime? = when (slot) {

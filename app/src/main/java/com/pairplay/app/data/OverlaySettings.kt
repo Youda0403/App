@@ -39,6 +39,9 @@ data class OverlaySettings(
     /** 음악 재생 상태에 반응할지. 권한이 없으면 무시된다. */
     val musicReactionEnabled: Boolean = true,
 
+    /** 하트·음표 같은 표시를 띄울지. */
+    val effectsEnabled: Boolean = true,
+
     /** 이 시각(epoch ms)까지 숨긴다. 0 이면 숨김 없음. */
     val hiddenUntilMillis: Long = 0L,
 
@@ -73,6 +76,7 @@ class OverlaySettingsStore(private val context: Context) {
         val COLLAPSED = booleanPreferencesKey("collapsed")
         val LINKED_DRAG = booleanPreferencesKey("linked_drag")
         val MUSIC = booleanPreferencesKey("music_reaction")
+        val EFFECTS = booleanPreferencesKey("effects_enabled")
         val HIDDEN_UNTIL = longPreferencesKey("hidden_until")
         val ONBOARDING = booleanPreferencesKey("onboarding_completed")
     }
@@ -91,6 +95,7 @@ class OverlaySettingsStore(private val context: Context) {
             collapsed = prefs[Keys.COLLAPSED] ?: defaults.collapsed,
             linkedDrag = prefs[Keys.LINKED_DRAG] ?: defaults.linkedDrag,
             musicReactionEnabled = prefs[Keys.MUSIC] ?: defaults.musicReactionEnabled,
+            effectsEnabled = prefs[Keys.EFFECTS] ?: defaults.effectsEnabled,
             hiddenUntilMillis = prefs[Keys.HIDDEN_UNTIL] ?: defaults.hiddenUntilMillis,
             onboardingCompleted = prefs[Keys.ONBOARDING] ?: defaults.onboardingCompleted
         )
@@ -127,6 +132,8 @@ class OverlaySettingsStore(private val context: Context) {
     suspend fun setLinkedDrag(linked: Boolean) = edit { it[Keys.LINKED_DRAG] = linked }
 
     suspend fun setMusicReaction(enabled: Boolean) = edit { it[Keys.MUSIC] = enabled }
+
+    suspend fun setEffectsEnabled(enabled: Boolean) = edit { it[Keys.EFFECTS] = enabled }
 
     suspend fun setHiddenUntil(epochMillis: Long) = edit { it[Keys.HIDDEN_UNTIL] = epochMillis }
 

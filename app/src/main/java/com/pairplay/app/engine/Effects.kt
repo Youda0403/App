@@ -117,6 +117,13 @@ class EffectEmitter(
 
     companion object {
         const val MAX_PARTICLES = 12
+
+        /**
+         * [render] 가 돌려주는 scale 의 상한.
+         * 그리는 쪽에서 표시가 창 밖으로 잘리지 않을 여백을 잡는 데 쓴다.
+         * (크기 0.75~1.25 에 튀어나오는 효과 1.15 를 곱한 값보다 조금 넉넉하게)
+         */
+        const val MAX_RENDER_SCALE = 1.45f
         private const val DURATION_MS = 1_100L
         private const val STAGGER_MS = 110L
     }
