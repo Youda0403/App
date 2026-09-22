@@ -34,6 +34,34 @@
             </intent-filter>
         </activity>
 
+        <!--
+            오버레이가 떠 있는 동안 살아 있는 포그라운드 서비스.
+            Android 14 이상은 유형 선언이 필수인데, 다른 앱 위에 캐릭터를 띄우는 일은
+            기존 유형(미디어 재생/위치/통화 등) 어디에도 해당하지 않아 specialUse 를 쓴다.
+        -->
+        <service
+            android:name=".overlay.OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="사용자가 직접 시작한 화면 위 캐릭터 오버레이를 유지하기 위한 서비스입니다. 서비스가 살아 있는 동안에만 캐릭터가 표시되며, 사용자는 상시 알림에서 즉시 중지할 수 있습니다." />
+        </service>
+
+        <!--
+            알림을 읽기 위한 것이 아니라, MediaSessionManager.getActiveSessions() 호출 조건을
+            충족하기 위해 존재한다. 사용자가 설정에서 직접 켜야만 동작한다.
+        -->
+        <service
+            android:name=".music.PairPlayNotificationListener"
+            android:exported="false"
+            android:label="@string/notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>
