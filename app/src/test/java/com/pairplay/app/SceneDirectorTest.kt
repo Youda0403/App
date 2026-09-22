@@ -25,6 +25,11 @@ import kotlin.random.Random
  */
 class SceneDirectorTest {
 
+    private companion object {
+        /** 기다리는 간격 때문에 생기는 오차를 감안한 여유. */
+        const val STUCK_SLACK_MS = 6_000L
+    }
+
     private fun context(
         type: RelationshipType = RelationshipType.LOVERS,
         direction: RelationshipDirection = RelationshipDirection.MUTUAL,
@@ -89,40 +94,129 @@ class SceneDirectorTest {
 
     @Test
     fun `상대 마디를 기다리는 쪽은 짧게 기다린다`() {
+        val ctx = context(RelationshipType.FAMILY)
         val director = director()
-        director.configure(context(RelationshipType.FAMILY))
-        director.onTrigger(SceneTrigger.IDLE_TIMER, 1_000L)
+        director.configure(ctx)
+        assertTrue(director.onTrigger(SceneTrigger.IDLE_TIMER, 1_000L))
 
-        val log = runScene(director, maxTurns = 20)
-        val waiting = log.filter {
-            it.second == CharacterAction.IDLE && it.third > 1_000L
-        }
-        // 기다리는 동안 준 간격은 실제 동작 길이보다 훨씬 짧아야 한다.
+        val script = ScriptLibrary.buildFor(ctx).first { it.id == director.activeScriptId }
+        val firstStep = script.steps.first()
         assertTrue(
-            "기다리는 간격이 없습니다. 두 캐릭터가 번갈아 연기하지 않는다는 뜻입니다.",
-            waiting.isNotEmpty() || log.size < 5
+            "가족 장면의 첫 마디는 한 명이 먼저 움직여야 합니다",
+            firstStep.performer != Performer.BOTH
+        )
+
+        val actor = firstStep.performer
+        val waiter = if (actor == Performer.A) Performer.B else Performer.A
+
+        assertEquals(
+            "첫 마디를 맡은 쪽이 그 동작을 해야 합니다",
+            firstStep.action,
+            director.nextDirection(actor, 1_000L).action
+        )
+        assertEquals(
+            "기다리는 쪽은 짧은 간격으로 다시 물어봐야 장면이 늘어지지 않습니다",
+            SceneDirector.WAITING_MS,
+            director.nextDirection(waiter, 1_000L).durationMs
         )
     }
 
     @Test
     fun `쿨다운 전에는 같은 장면이 다시 나오지 않는다`() {
+        val ctx = context(RelationshipType.COLLEAGUES)
         val director = director()
-        director.configure(context(RelationshipType.COLLEAGUES))
+        director.configure(ctx)
+        val cooldowns = ScriptLibrary.buildFor(ctx).associate { it.id to it.cooldownMs }
 
-        assertTrue(director.onTrigger(SceneTrigger.IDLE_TIMER, 1_000L))
-        val first = director.activeScriptId
-        assertNotNull(first)
+        // 오래 돌리면서 각 장면이 언제 시작했는지 기록한다.
+        val startTimes = HashMap<String, MutableList<Long>>()
+        var previousId: String? = null
+        var nowA = 1_000L
+        var nowB = 1_000L
 
-        // 장면을 끝까지 돌린다.
-        runScene(director, startAt = 1_000L, maxTurns = 40)
+        repeat(3_000) {
+            val performer = if (nowA <= nowB) Performer.A else Performer.B
+            val now = minOf(nowA, nowB)
+            val direction = director.nextDirection(performer, now)
 
-        // 곧바로 같은 장면이 또 잡히면 안 된다.
-        var repeated = false
-        repeat(10) {
-            director.onTrigger(SceneTrigger.IDLE_TIMER, 2_000L)
-            if (director.activeScriptId == first) repeated = true
+            val id = director.activeScriptId
+            if (id != null && id != previousId) {
+                startTimes.getOrPut(id) { mutableListOf() }.add(now)
+            }
+            previousId = id
+
+            if (performer == Performer.A) nowA = now + direction.durationMs
+            else nowB = now + direction.durationMs
         }
-        assertFalse("쿨다운을 무시하고 같은 장면이 다시 나왔습니다", repeated)
+
+        assertTrue("장면이 한 번도 시작되지 않았습니다", startTimes.isNotEmpty())
+        assertTrue(
+            "장면이 한 번밖에 안 나와서 쿨다운을 확인할 수 없습니다",
+            startTimes.values.any { it.size >= 2 }
+        )
+
+        for ((id, times) in startTimes) {
+            val cooldown = cooldowns[id] ?: continue
+            for (i in 1 until times.size) {
+                val gap = times[i] - times[i - 1]
+                assertTrue(
+                    "$id 이(가) 쿨다운(${cooldown}ms) 을 무시하고 ${gap}ms 만에 다시 나왔습니다",
+                    gap >= cooldown
+                )
+            }
+        }
+    }
+
+    /**
+     * 실제로 터졌던 버그의 재발 방지.
+     *
+     * 기다리는 동안 주던 짧은 간격이 '이번 마디가 끝나는 시각'까지 밀어 버려서,
+     * 두 사람이 함께 하는 마디에서 서로의 끝 시각을 번갈아 미루며 장면이
+     * 영원히 끝나지 않았다. 첫 장면 하나가 붙잡은 채 45분이 지나도 다음 장면이
+     * 시작되지 않았다.
+     */
+    @Test
+    fun `장면이 끝나지 않고 멈추는 일이 없다`() {
+        val ctx = context(RelationshipType.FAMILY)
+        val director = director()
+        director.configure(ctx)
+        val totals = ScriptLibrary.buildFor(ctx).associate { it.id to it.totalDurationMs }
+
+        var nowA = 1_000L
+        var nowB = 1_000L
+        var currentId: String? = null
+        var currentStart = 1_000L
+        var finishedScenes = 0
+
+        repeat(3_000) {
+            val performer = if (nowA <= nowB) Performer.A else Performer.B
+            val now = minOf(nowA, nowB)
+            val direction = director.nextDirection(performer, now)
+
+            val id = director.activeScriptId
+            if (id != currentId) {
+                if (currentId != null) {
+                    val ran = now - currentStart
+                    val expected = totals[currentId] ?: 0L
+                    finishedScenes++
+                    assertTrue(
+                        "$currentId 이(가) ${ran}ms 나 붙잡고 있었습니다. " +
+                            "원래 길이는 ${expected}ms 입니다",
+                        ran <= expected + STUCK_SLACK_MS
+                    )
+                }
+                currentId = id
+                currentStart = now
+            }
+
+            if (performer == Performer.A) nowA = now + direction.durationMs
+            else nowB = now + direction.durationMs
+        }
+
+        assertTrue(
+            "장면이 하나도 끝나지 않았습니다. 스케줄러가 멈춰 있다는 뜻입니다",
+            finishedScenes >= 5
+        )
     }
 
     @Test

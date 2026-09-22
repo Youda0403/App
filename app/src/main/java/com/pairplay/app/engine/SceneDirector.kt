@@ -36,8 +36,14 @@ class SceneDirector(
     private var active: InteractionScript? = null
     private var stepIndex = 0
     private val stepHandedTo = HashSet<Performer>()
-    private var busyUntilA = 0L
-    private var busyUntilB = 0L
+    /**
+     * 이 사람이 맡은 '이번 마디'가 끝나는 시각.
+     *
+     * 기다리는 동안 주는 짧은 간격은 여기에 반영하지 않는다. 반영하면 두 사람이
+     * 번갈아 기다리며 서로의 끝 시각을 계속 뒤로 밀어, 마디가 영원히 끝나지 않는다.
+     */
+    private var stepEndsA = 0L
+    private var stepEndsB = 0L
 
     val activeScriptId: String? get() = active?.id
     val activeScriptName: String? get() = active?.name
@@ -60,8 +66,8 @@ class SceneDirector(
     fun reset() {
         abandonScript()
         cooldownUntil.clear()
-        busyUntilA = 0L
-        busyUntilB = 0L
+        stepEndsA = 0L
+        stepEndsB = 0L
     }
 
     /**
@@ -105,17 +111,17 @@ class SceneDirector(
             if (performer in participants(step) && performer !in stepHandedTo) {
                 stepHandedTo.add(performer)
                 val duration = step.resolvedDuration()
-                markBusy(performer, now + duration)
+                markStepEnd(performer, now + duration)
                 return Direction(step.action, duration, script.id)
             }
             // 상대가 연기하는 마디를 기다리는 중. 짧게 숨만 쉬며 기다린다.
-            markBusy(performer, now + WAITING_MS)
+            // 끝 시각은 건드리지 않는다. 기다림이 마디를 뒤로 밀면 안 되기 때문이다.
             return Direction(CharacterAction.IDLE, WAITING_MS)
         }
 
         val action = ambientAction(performer, musicPlaying, nearEdge)
         val duration = action.defaultDurationMs
-        markBusy(performer, now + duration)
+        markStepEnd(performer, now + duration)
         return Direction(action, duration)
     }
 
@@ -131,7 +137,7 @@ class SceneDirector(
             val actors = participants(step)
 
             val everyoneGotIt = actors.all { it in stepHandedTo }
-            val everyoneDone = actors.all { busyUntil(it) <= now }
+            val everyoneDone = actors.all { stepEndsAt(it) <= now }
 
             if (!everyoneGotIt || !everyoneDone) return
 
@@ -161,8 +167,8 @@ class SceneDirector(
         stepIndex = 0
         stepHandedTo.clear()
         // 새 장면의 첫 마디는 바로 나갈 수 있어야 한다.
-        busyUntilA = minOf(busyUntilA, now)
-        busyUntilB = minOf(busyUntilB, now)
+        stepEndsA = minOf(stepEndsA, now)
+        stepEndsB = minOf(stepEndsB, now)
     }
 
     private fun finishScript(script: InteractionScript, now: Long) {
@@ -203,15 +209,15 @@ class SceneDirector(
         }
     }
 
-    private fun busyUntil(performer: Performer): Long = when (performer) {
-        Performer.B -> busyUntilB
-        else -> busyUntilA
+    private fun stepEndsAt(performer: Performer): Long = when (performer) {
+        Performer.B -> stepEndsB
+        else -> stepEndsA
     }
 
-    private fun markBusy(performer: Performer, until: Long) {
+    private fun markStepEnd(performer: Performer, until: Long) {
         when (performer) {
-            Performer.B -> busyUntilB = until
-            else -> busyUntilA = until
+            Performer.B -> stepEndsB = until
+            else -> stepEndsA = until
         }
     }
 

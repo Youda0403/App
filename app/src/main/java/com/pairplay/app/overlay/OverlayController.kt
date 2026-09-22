@@ -404,7 +404,7 @@ class OverlayController(
         } else {
             val rawPose = PoseCalculator.pose(
                 action = runtime.action,
-                progress = progress,
+                progress = poseProgress(runtime, progress, now),
                 heightPx = runtime.displayHeight,
                 seed = runtime.seed
             )
@@ -428,6 +428,20 @@ class OverlayController(
         if (!runtime.interactionHeld && progress >= 1f) {
             advanceAction(runtime, now)
         }
+    }
+
+    /**
+     * 자세를 계산할 때 쓸 진행도.
+     *
+     * 가만히 있는 동작은 지시받은 길이와 상관없이 늘 같은 속도로 숨 쉬어야 한다.
+     * 스케줄러가 상대를 기다리며 0.4초짜리 대기를 주면, 진행도를 그대로 쓸 경우
+     * 숨쉬기가 6배 빨라져 덜덜 떠는 것처럼 보인다. 그래서 절대 시각으로 계산한다.
+     */
+    private fun poseProgress(runtime: Runtime, progress: Float, now: Long): Float {
+        if (!runtime.action.loops) return progress
+        val period = runtime.action.defaultDurationMs
+        if (period <= 0L) return progress
+        return (now % period).toFloat() / period
     }
 
     /** 동작이 바뀐 직후에는 직전 자세에서 새 자세로 부드럽게 건너간다. */

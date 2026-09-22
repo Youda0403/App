@@ -12,15 +12,23 @@ enum class CharacterAction(
     val id: String,
     val defaultDurationMs: Long,
     /** 이동 동작인지. 이동 동작은 창 위치 자체를 옮긴다. */
-    val moves: Boolean = false
+    val moves: Boolean = false,
+    /**
+     * 계속 반복되는 '가만히 있는' 동작인지.
+     *
+     * 이런 동작은 얼마 동안 하라고 지시받든 숨 쉬는 속도가 같아야 한다.
+     * 그래서 자세를 '지시받은 길이에 대한 진행도'가 아니라 절대 시각으로 계산한다.
+     * (스케줄러가 상대를 기다리며 0.4초짜리 대기를 줄 때 숨쉬기가 6배 빨라지던 문제)
+     */
+    val loops: Boolean = false
 ) {
-    IDLE("idle", 2_400L),
-    BREATHE("breathe", 3_200L),
+    IDLE("idle", 2_400L, loops = true),
+    BREATHE("breathe", 3_200L, loops = true),
     JUMP("jump", 900L),
     WALK("walk", 2_600L, moves = true),
     APPROACH("approach", 2_800L, moves = true),
     LOOK_AT("look_at", 1_400L),
-    DOZE("doze", 6_000L),
+    DOZE("doze", 6_000L, loops = true),
     RHYTHM("rhythm", 2_000L),
     SURPRISED("surprised", 800L),
 
@@ -28,7 +36,7 @@ enum class CharacterAction(
     BUMP("bump", 700L),
 
     /** 가장자리에 기대어 쉰다. */
-    LEAN("lean", 4_000L),
+    LEAN("lean", 4_000L, loops = true),
 
     /** 쓰다듬어 줄 때. 기분 좋게 몸을 흔든다. */
     PET("pet", 1_600L),
@@ -43,7 +51,7 @@ enum class CharacterAction(
     SHY("shy", 1_400L),
 
     /** 나란히 쉬기. 한자리에 자리 잡고 느리게 숨 쉰다. */
-    REST("rest", 4_500L),
+    REST("rest", 4_500L, loops = true),
 
     /** 상대를 견제하듯 노려본다. 라이벌 관계에 쓴다. */
     GLARE("glare", 1_600L);

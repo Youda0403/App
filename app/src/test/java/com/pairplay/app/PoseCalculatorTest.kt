@@ -78,6 +78,25 @@ class PoseCalculatorTest {
         assertTrue(!CharacterAction.BUMP.moves)
     }
 
+    /**
+     * 가만히 있는 동작은 지시받은 길이와 상관없이 숨 쉬는 속도가 같아야 한다.
+     * 스케줄러가 상대를 기다리며 짧은 대기를 줄 때 덜덜 떠는 것처럼 보이던 문제가 있었다.
+     */
+    @Test
+    fun `가만히 있는 동작은 반복 동작으로 표시된다`() {
+        assertTrue(CharacterAction.IDLE.loops)
+        assertTrue(CharacterAction.BREATHE.loops)
+        assertTrue(CharacterAction.DOZE.loops)
+        assertTrue(CharacterAction.REST.loops)
+        assertTrue(CharacterAction.LEAN.loops)
+
+        // 한 번만 하고 끝나는 동작은 반복으로 표시하면 안 된다.
+        assertTrue(!CharacterAction.JUMP.loops)
+        assertTrue(!CharacterAction.SURPRISED.loops)
+        assertTrue(!CharacterAction.WALK.loops)
+        assertTrue(!CharacterAction.BUMP.loops)
+    }
+
     private companion object {
         const val EPSILON = 0.001f
     }
