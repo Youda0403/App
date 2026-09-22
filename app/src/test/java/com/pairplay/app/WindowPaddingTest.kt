@@ -25,7 +25,12 @@ class WindowPaddingTest {
             140f to 140f,
             60f to 300f,
             300f to 120f,
-            220f to 260f
+            220f to 260f,
+            100f to 180f,
+            // 극단적인 비율도 확인한다. 납작한 캐릭터는 회전할 때 발밑이,
+            // 길쭉한 캐릭터는 머리가 가장 많이 밀려난다.
+            400f to 80f,
+            50f to 400f
         )
 
         for ((width, height) in sizes) {

@@ -210,41 +210,48 @@ data class WindowPadding(val x: Float, val y: Float)
  * 모자라면 캐릭터가 잘려 보인다. 그래서 [PoseBounds] 가 약속한 최대 변형에서
  * 실제로 필요한 만큼만 계산한다.
  *
- * 회전과 확대의 기준점은 모두 발밑 가운데다.
+ * 회전과 확대의 기준점은 모두 발밑 가운데다. 그래서 어디가 가장 많이 튀어나오는지가
+ * 캐릭터 비율에 따라 달라진다.
  * - 세로 확대는 위쪽으로만 커진다.
- * - 회전은 발밑에서 가장 먼 머리 쪽 모서리를 가장 많이 밀어낸다.
+ * - 가로로는 발밑에서 가장 먼 머리 쪽 모서리가 가장 많이 밀려난다.
+ * - 세로로는, 가로로 넓은 캐릭터일수록 회전 때문에 발밑 모서리가 크게 내려간다.
+ *   (이걸 놓치면 납작한 캐릭터의 아래쪽이 잘린다)
  */
 object WindowPaddingCalculator {
 
     /** 여백이 0 이 되지 않도록 하는 최소치(px). */
     const val MIN_PADDING_PX = 2f
 
-    /**
-     * 회전이 세로로 밀어내는 양은 가로보다 훨씬 작다.
-     * 머리 모서리가 호를 그리며 도는데 세로 성분이 작기 때문이다.
-     */
-    private const val VERTICAL_ROTATION_FACTOR = 0.35f
-
     fun forCharacter(width: Float, height: Float): WindowPadding {
         if (width <= 0f || height <= 0f) {
             return WindowPadding(MIN_PADDING_PX, MIN_PADDING_PX)
         }
 
-        val radians = Math.toRadians(PoseBounds.MAX_ROTATION_DEG.toDouble())
-        val sinTheta = kotlin.math.sin(radians).toFloat()
-        val pivotToHeadCorner = kotlin.math.hypot(width / 2f, height)
-        val rotationSpread = pivotToHeadCorner * sinTheta
+        val half = width / 2f
+        val sinTheta = kotlin.math.sin(
+            Math.toRadians(PoseBounds.MAX_ROTATION_DEG.toDouble())
+        ).toFloat()
 
-        val growSide = width * (PoseBounds.MAX_SCALE_X - 1f) / 2f
-        val growTop = height * (PoseBounds.MAX_SCALE_Y - 1f) +
-            height * PoseBounds.MAX_OFFSET_UP_RATIO
-        val growBottom = height * PoseBounds.MAX_OFFSET_DOWN_RATIO
+        // 회전 뒤 좌표: x' = x·cos - y·sin, y' = x·sin + y·cos (기준점은 발밑 가운데)
+        // cos 는 1 이하이므로 1 로 잡으면 안전한 상한이 된다.
+
+        // 가로로 가장 멀리 나가는 곳은 머리 쪽 모서리다.
+        val padX = half * (PoseBounds.MAX_SCALE_X - 1f) +
+            height * PoseBounds.MAX_SCALE_Y * sinTheta
+
+        // 위로는 머리 쪽 모서리가, 아래로는 발밑 모서리가 가장 멀리 나간다.
+        // 가로로 넓은 캐릭터일수록 발밑 모서리가 회전으로 크게 내려간다.
+        val padTop = half * PoseBounds.MAX_SCALE_X * sinTheta +
+            height * PoseBounds.MAX_SCALE_Y +
+            height * PoseBounds.MAX_OFFSET_UP_RATIO -
+            height
+        val padBottom = half * PoseBounds.MAX_SCALE_X * sinTheta +
+            height * PoseBounds.MAX_OFFSET_DOWN_RATIO
 
         return WindowPadding(
-            x = (growSide + rotationSpread).coerceAtLeast(MIN_PADDING_PX),
+            x = padX.coerceAtLeast(MIN_PADDING_PX),
             // 세로 여백은 위아래가 같아야 그림이 창 한가운데에 온다.
-            y = (maxOf(growTop, growBottom) + rotationSpread * VERTICAL_ROTATION_FACTOR)
-                .coerceAtLeast(MIN_PADDING_PX)
+            y = maxOf(padTop, padBottom).coerceAtLeast(MIN_PADDING_PX)
         )
     }
 }
