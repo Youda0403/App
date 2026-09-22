@@ -103,6 +103,13 @@ fun HomeScreen(
                     if (state.overlayRunning) "실행 중" else "멈춰 있음",
                     style = MaterialTheme.typography.bodySmall
                 )
+                if (state.overlayRunning) {
+                    Text(
+                        state.currentScene?.let { "지금 상황극: $it" }
+                            ?: "지금은 각자 지내는 중",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
                 if (state.settings.isHiddenAt(System.currentTimeMillis())) {
                     Text("지금은 숨김 상태예요.", style = MaterialTheme.typography.bodySmall)
                     OutlinedButton(onClick = { viewModel.showAgain() }) { Text("다시 보이기") }
@@ -127,6 +134,8 @@ fun HomeScreen(
             SectionCard("사용 요령") {
                 Text("• 캐릭터를 끌어서 옮길 수 있어요.")
                 Text("• 캐릭터를 톡 치면 하트가 뜨고, 짝이 있으면 쳐다봐요.")
+                Text("• 한 명을 끌어다 다른 한 명 옆에 놓으면 서로 반응해요.")
+                Text("• 머리 위 말풍선이 지금 기분을 알려 줘요.")
                 Text("• 캐릭터 위를 좌우로 문지르면 쓰다듬기가 돼요. 하트가 계속 올라와요.")
                 Text("• 걷다가 화면 끝에 닿으면 부딪히고 돌아서요.")
                 Text("• 캐릭터를 길게 누르면 바로 숨겨져요. 비밀번호 입력처럼 가려지면 곤란할 때 쓰세요.")

@@ -107,9 +107,28 @@ fun OverlaySettingsScreen(
                 }
             }
 
-            SectionCard("하트와 음표") {
+            SectionCard("활발함") {
+                LabeledSlider(
+                    label = "정도",
+                    value = settings.activityPercent,
+                    range = 0..100,
+                    suffix = "%"
+                ) { viewModel.setActivity(it) }
+                Text(
+                    "높일수록 더 멀리 돌아다니고, 동작이 빨라지고, 상황극도 자주 나와요. " +
+                        "낮추면 조용히 있습니다.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            SectionCard("기분 표시") {
                 LabeledSwitch(
-                    label = "표시 띄우기",
+                    label = "머리 위 말풍선",
+                    description = "지금 무슨 기분인지 작은 기호로 알려 줘요. 둘이 주고받은 걸 알아보기 쉬워집니다.",
+                    checked = settings.bubblesEnabled
+                ) { viewModel.setBubblesEnabled(it) }
+                LabeledSwitch(
+                    label = "하트와 음표",
                     description = "톡 치거나 쓰다듬을 때 하트, 음악이 시작될 때 음표가 올라와요.",
                     checked = settings.effectsEnabled
                 ) { viewModel.setEffectsEnabled(it) }

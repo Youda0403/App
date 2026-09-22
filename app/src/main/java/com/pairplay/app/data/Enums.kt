@@ -38,6 +38,10 @@ enum class SceneTrigger {
     MUSIC_STARTED,
     MUSIC_STOPPED,
     MUSIC_TRACK_CHANGED,
+
+    /** 두 캐릭터가 가까워졌을 때. 사용자가 끌어다 붙여 놓은 경우를 포함한다. */
+    CHARACTERS_MET,
+
     MANUAL;
 
     companion object {

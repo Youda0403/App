@@ -42,12 +42,22 @@ data class OverlaySettings(
     /** 하트·음표 같은 표시를 띄울지. */
     val effectsEnabled: Boolean = true,
 
+    /** 머리 위 기분 표시(말풍선)를 띄울지. */
+    val bubblesEnabled: Boolean = true,
+
+    /**
+     * 얼마나 활발하게 돌아다닐지(%).
+     * 이동 거리, 장면이 나오는 빈도, 동작 속도에 함께 반영된다.
+     */
+    val activityPercent: Int = 50,
+
     /** 이 시각(epoch ms)까지 숨긴다. 0 이면 숨김 없음. */
     val hiddenUntilMillis: Long = 0L,
 
     val onboardingCompleted: Boolean = false
 ) {
     val scale: Float get() = scalePercent / 100f
+    val activity: Float get() = (activityPercent / 100f).coerceIn(0f, 1f)
     val opacity: Float get() = opacityPercent / 100f
 
     fun isHiddenAt(now: Long): Boolean = hiddenUntilMillis > now
@@ -77,6 +87,8 @@ class OverlaySettingsStore(private val context: Context) {
         val LINKED_DRAG = booleanPreferencesKey("linked_drag")
         val MUSIC = booleanPreferencesKey("music_reaction")
         val EFFECTS = booleanPreferencesKey("effects_enabled")
+        val BUBBLES = booleanPreferencesKey("bubbles_enabled")
+        val ACTIVITY = intPreferencesKey("activity_percent")
         val HIDDEN_UNTIL = longPreferencesKey("hidden_until")
         val ONBOARDING = booleanPreferencesKey("onboarding_completed")
     }
@@ -96,6 +108,8 @@ class OverlaySettingsStore(private val context: Context) {
             linkedDrag = prefs[Keys.LINKED_DRAG] ?: defaults.linkedDrag,
             musicReactionEnabled = prefs[Keys.MUSIC] ?: defaults.musicReactionEnabled,
             effectsEnabled = prefs[Keys.EFFECTS] ?: defaults.effectsEnabled,
+            bubblesEnabled = prefs[Keys.BUBBLES] ?: defaults.bubblesEnabled,
+            activityPercent = prefs[Keys.ACTIVITY] ?: defaults.activityPercent,
             hiddenUntilMillis = prefs[Keys.HIDDEN_UNTIL] ?: defaults.hiddenUntilMillis,
             onboardingCompleted = prefs[Keys.ONBOARDING] ?: defaults.onboardingCompleted
         )
@@ -134,6 +148,12 @@ class OverlaySettingsStore(private val context: Context) {
     suspend fun setMusicReaction(enabled: Boolean) = edit { it[Keys.MUSIC] = enabled }
 
     suspend fun setEffectsEnabled(enabled: Boolean) = edit { it[Keys.EFFECTS] = enabled }
+
+    suspend fun setBubblesEnabled(enabled: Boolean) = edit { it[Keys.BUBBLES] = enabled }
+
+    suspend fun setActivityPercent(percent: Int) = edit {
+        it[Keys.ACTIVITY] = percent.coerceIn(0, 100)
+    }
 
     suspend fun setHiddenUntil(epochMillis: Long) = edit { it[Keys.HIDDEN_UNTIL] = epochMillis }
 

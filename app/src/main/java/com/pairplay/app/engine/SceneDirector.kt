@@ -27,6 +27,18 @@ class SceneDirector(
         val scriptId: String? = null
     )
 
+    /**
+     * 쉬는 시간에 장면을 시작할 확률.
+     * 사용자가 '활발함'을 올리면 장면이 더 자주 나온다.
+     */
+    private var eagerness: Float = scriptStartChance
+
+    /**
+     * 동작 속도 배율. 클수록 빠르다.
+     * 사용자의 '활발함' 설정이 여기로 들어온다.
+     */
+    private var speedScale: Float = 1f
+
     private var context: RelationshipContext? = null
     private var scripts: List<InteractionScript> = emptyList()
 
@@ -47,6 +59,28 @@ class SceneDirector(
 
     val activeScriptId: String? get() = active?.id
     val activeScriptName: String? get() = active?.name
+
+    /** 활발함 설정을 반영한다. 0 이면 장면 없이 각자 있고, 1 이면 쉴 틈 없이 장면이 돈다. */
+    fun setEagerness(value: Float) {
+        eagerness = value.coerceIn(0f, 1f)
+    }
+
+    /** 동작이 얼마나 빨리 지나갈지. 1 이 기본이다. */
+    fun setSpeedScale(value: Float) {
+        speedScale = value.coerceIn(0.5f, 2f)
+    }
+
+    /**
+     * 실제로 쓸 동작 길이.
+     *
+     * 활발함 설정과 캐릭터의 활동성 수치를 함께 반영한다.
+     * 활동적인 캐릭터가 눈에 띄게 빠릿하게 움직여야 둘의 성격 차이가 보인다.
+     */
+    private fun scaledDuration(duration: Long, performer: Performer): Long {
+        val traits = traitsOf(performer) ?: CharacterTraits()
+        val energyFactor = 0.8f + 0.4f * (traits.energy.coerceIn(0, 100) / 100f)
+        return (duration / (speedScale * energyFactor)).toLong().coerceAtLeast(150L)
+    }
 
     fun configure(newContext: RelationshipContext) {
         context = newContext
@@ -110,7 +144,7 @@ class SceneDirector(
             val step = script.steps[stepIndex]
             if (performer in participants(step) && performer !in stepHandedTo) {
                 stepHandedTo.add(performer)
-                val duration = step.resolvedDuration()
+                val duration = scaledDuration(step.resolvedDuration(), performer)
                 markStepEnd(performer, now + duration)
                 return Direction(step.action, duration, script.id)
             }
@@ -120,7 +154,7 @@ class SceneDirector(
         }
 
         val action = ambientAction(performer, musicPlaying, nearEdge)
-        val duration = action.defaultDurationMs
+        val duration = scaledDuration(action.defaultDurationMs, performer)
         markStepEnd(performer, now + duration)
         return Direction(action, duration)
     }
@@ -156,7 +190,7 @@ class SceneDirector(
         }
         if (candidates.isEmpty()) return
         // 매번 장면이 나오면 부산스럽다. 가끔은 그냥 각자 있게 둔다.
-        if (random.nextFloat() >= scriptStartChance) return
+        if (random.nextFloat() >= eagerness) return
         val picked = pick(candidates) ?: return
         startScript(picked, now)
     }
@@ -272,7 +306,7 @@ class SceneDirector(
         /** 상대 마디를 기다리는 동안 쓰는 짧은 간격. */
         const val WAITING_MS = 400L
 
-        /** 쉬는 시간이 왔을 때 장면을 시작할 확률. 1 이면 쉴 틈 없이 장면만 돈다. */
-        const val SCRIPT_START_CHANCE = 0.55f
+        /** 쉬는 시간이 왔을 때 장면을 시작할 기본 확률. 1 이면 쉴 틈 없이 장면만 돈다. */
+        const val SCRIPT_START_CHANCE = 0.8f
     }
 }

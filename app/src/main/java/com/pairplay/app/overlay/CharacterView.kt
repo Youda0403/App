@@ -45,10 +45,17 @@ class CharacterView(context: Context) : View(context) {
             }
         }
 
-    var facingRight: Boolean = true
+    /**
+     * 바라보는 방향. +1 이 오른쪽, -1 이 왼쪽.
+     *
+     * 불리언으로 즉시 뒤집으면 '탁' 하고 튀어 보인다. 0 을 지나가며 바뀌면
+     * 몸을 돌리는 것처럼 보이므로 중간값을 받는다.
+     */
+    var facingFactor: Float = 1f
         set(value) {
-            if (field != value) {
-                field = value
+            val clamped = value.coerceIn(-1f, 1f)
+            if (field != clamped) {
+                field = clamped
                 invalidate()
             }
         }
@@ -99,7 +106,11 @@ class CharacterView(context: Context) : View(context) {
         canvas.translate(0f, pose.offsetY)
         canvas.rotate(pose.rotationDeg, centerX, footY)
 
-        val mirror = if (facingRight != flippedByUser) 1f else -1f
+        // 완전히 0 이 되면 한 프레임 사라져 보이므로 아주 얇게 남긴다.
+        val baseFlip = if (flippedByUser) -1f else 1f
+        val mirror = (facingFactor * baseFlip).let {
+            if (kotlin.math.abs(it) < MIN_MIRROR) MIN_MIRROR * (if (it < 0f) -1f else 1f) else it
+        }
         canvas.scale(pose.scaleX * mirror, pose.scaleY, centerX, footY)
 
         dstRect.set(
@@ -113,3 +124,5 @@ class CharacterView(context: Context) : View(context) {
         canvas.restoreToCount(save)
     }
 }
+
+private const val MIN_MIRROR = 0.04f

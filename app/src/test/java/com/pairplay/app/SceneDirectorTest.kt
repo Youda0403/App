@@ -309,6 +309,92 @@ class SceneDirectorTest {
     }
 
     @Test
+    fun `모든 관계에 마주쳤을 때 장면이 있다`() {
+        for (type in RelationshipType.entries) {
+            val scripts = ScriptLibrary.buildFor(context(type))
+            val met = scripts.filter { it.trigger == SceneTrigger.CHARACTERS_MET }
+            assertTrue("$type 에 마주쳤을 때 장면이 없습니다", met.isNotEmpty())
+            assertTrue(
+                "$type 의 마주침 장면이 비어 있습니다",
+                met.all { it.steps.isNotEmpty() }
+            )
+        }
+    }
+
+    @Test
+    fun `끌어다 붙여 놓으면 마주친 장면이 시작된다`() {
+        val director = director()
+        director.configure(context(RelationshipType.FRIENDS))
+
+        assertTrue(
+            "마주쳤는데 아무 장면도 시작되지 않았습니다",
+            director.onTrigger(SceneTrigger.CHARACTERS_MET, 1_000L)
+        )
+        assertTrue(
+            "마주침 장면이 아닌 다른 장면이 잡혔습니다",
+            director.activeScriptId?.startsWith("met_") == true
+        )
+    }
+
+    @Test
+    fun `활발함을 낮추면 장면이 시작되지 않는다`() {
+        val director = director()
+        director.configure(context())
+        director.setEagerness(0f)
+
+        repeat(50) {
+            val direction = director.nextDirection(Performer.A, 1_000L + it * 3_000L)
+            assertNull("조용히 있으라고 했는데 장면이 돌았습니다", direction.scriptId)
+        }
+    }
+
+    @Test
+    fun `활발하게 설정하면 동작이 더 빨리 지나간다`() {
+        val slow = director(alwaysStart = false)
+        slow.configure(context())
+        slow.setSpeedScale(0.75f)
+
+        val fast = director(alwaysStart = false)
+        fast.configure(context())
+        fast.setSpeedScale(1.35f)
+
+        val slowTotal = (0 until 30).sumOf {
+            slow.nextDirection(Performer.A, 1_000L + it * 60_000L).durationMs
+        }
+        val fastTotal = (0 until 30).sumOf {
+            fast.nextDirection(Performer.A, 1_000L + it * 60_000L).durationMs
+        }
+        assertTrue(
+            "속도 설정이 동작 길이에 반영되지 않았습니다 (느림 $slowTotal, 빠름 $fastTotal)",
+            fastTotal < slowTotal
+        )
+    }
+
+    @Test
+    fun `활동적인 캐릭터가 더 빠르게 움직인다`() {
+        val lively = RelationshipContext(
+            RelationshipType.FRIENDS,
+            RelationshipDirection.MUTUAL,
+            a = CharacterTraits(energy = 100),
+            b = CharacterTraits(energy = 0)
+        )
+        val director = director(alwaysStart = false)
+        director.configure(lively)
+
+        // 같은 시점에 각자 물어보면, 활동적인 쪽이 더 짧은 동작을 받는다.
+        val energetic = (0 until 40).sumOf {
+            director.nextDirection(Performer.A, 1_000L + it * 60_000L).durationMs
+        }
+        val calm = (0 until 40).sumOf {
+            director.nextDirection(Performer.B, 1_000L + it * 60_000L).durationMs
+        }
+        assertTrue(
+            "성격 차이가 속도에 드러나지 않습니다 (활동적 $energetic, 차분함 $calm)",
+            energetic < calm
+        )
+    }
+
+    @Test
     fun `관계를 바꾸면 장면 묶음도 바뀐다`() {
         val lovers = ScriptLibrary.buildFor(context(RelationshipType.LOVERS)).map { it.id }.toSet()
         val rivals = ScriptLibrary.buildFor(context(RelationshipType.RIVALS)).map { it.id }.toSet()

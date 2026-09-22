@@ -60,7 +60,8 @@ class OverlayService : LifecycleService() {
             context = this,
             windowManager = windowManager,
             onHideRequested = { hideIndefinitely() },
-            onPositionPersist = { slot, x, y -> persistPosition(slot, x, y) }
+            onPositionPersist = { slot, x, y -> persistPosition(slot, x, y) },
+            onSceneChanged = { name -> _currentScene.value = name }
         ).also { it.start() }
 
         observeData()
@@ -95,6 +96,7 @@ class OverlayService : LifecycleService() {
 
     override fun onDestroy() {
         _isRunning.value = false
+        _currentScene.value = null
         musicWatcher?.stop()
         musicWatcher = null
         controller?.release()
@@ -267,6 +269,10 @@ class OverlayService : LifecycleService() {
 
         private val _isRunning = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = _isRunning
+
+        /** 지금 도는 상황극 이름. 앱 화면에서 확인용으로 보여 준다. */
+        private val _currentScene = MutableStateFlow<String?>(null)
+        val currentScene: StateFlow<String?> = _currentScene
 
         fun start(context: Context) {
             val intent = Intent(context, OverlayService::class.java)

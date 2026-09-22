@@ -31,7 +31,9 @@ data class PairPlayUiState(
     val canDrawOverlays: Boolean = false,
     val notificationAccessGranted: Boolean = false,
     val loading: Boolean = true,
-    val message: String? = null
+    val message: String? = null,
+    /** 지금 도는 상황극 이름. 상황극이 실제로 돌고 있는지 확인할 수 있다. */
+    val currentScene: String? = null
 ) {
     val characterA: CharacterEntity?
         get() = activePair?.let { pair -> characters.firstOrNull { it.id == pair.characterAId } }
@@ -57,7 +59,8 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
     private data class Ambient(
         val canDrawOverlays: Boolean,
         val notificationAccessGranted: Boolean,
-        val message: String?
+        val message: String?,
+        val currentScene: String?
     )
 
     init {
@@ -65,8 +68,12 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
             repository.ensureDefaultCharacters()
         }
         viewModelScope.launch {
-            val ambient = combine(permissionState, message) { permissions, text ->
-                Ambient(permissions.first, permissions.second, text)
+            val ambient = combine(
+                permissionState,
+                message,
+                OverlayService.currentScene
+            ) { permissions, text, scene ->
+                Ambient(permissions.first, permissions.second, text, scene)
             }
             combine(
                 repository.observeCharacters(),
@@ -83,7 +90,8 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
                     canDrawOverlays = outside.canDrawOverlays,
                     notificationAccessGranted = outside.notificationAccessGranted,
                     loading = false,
-                    message = outside.message
+                    message = outside.message,
+                    currentScene = outside.currentScene
                 )
             }.collect { state ->
                 _uiState.value = state
@@ -214,6 +222,8 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
     fun setLinkedDrag(linked: Boolean) = launchSetting { settingsStore.setLinkedDrag(linked) }
     fun setMusicReaction(on: Boolean) = launchSetting { settingsStore.setMusicReaction(on) }
     fun setEffectsEnabled(on: Boolean) = launchSetting { settingsStore.setEffectsEnabled(on) }
+    fun setBubblesEnabled(on: Boolean) = launchSetting { settingsStore.setBubblesEnabled(on) }
+    fun setActivity(percent: Int) = launchSetting { settingsStore.setActivityPercent(percent) }
     fun setOnboardingCompleted() = launchSetting { settingsStore.setOnboardingCompleted(true) }
 
     fun showAgain() = launchSetting { settingsStore.setHiddenUntil(0L) }

@@ -23,7 +23,7 @@ object ScriptLibrary {
                 ScriptStep(Performer.A, CharacterAction.WALK),
                 ScriptStep(Performer.A, CharacterAction.IDLE, 1_200L)
             ),
-            cooldownMs = 20_000L,
+            cooldownMs = 14_000L,
             requiresPartner = false
         ),
         InteractionScript(
@@ -35,7 +35,7 @@ object ScriptLibrary {
                 ScriptStep(Performer.A, CharacterAction.SURPRISED, 600L),
                 ScriptStep(Performer.A, CharacterAction.IDLE, 1_000L)
             ),
-            cooldownMs = 90_000L,
+            cooldownMs = 45_000L,
             requiresPartner = false
         ),
         InteractionScript(
@@ -47,7 +47,7 @@ object ScriptLibrary {
                 ScriptStep(Performer.A, CharacterAction.JUMP),
                 ScriptStep(Performer.A, CharacterAction.BREATHE, 1_500L)
             ),
-            cooldownMs = 60_000L,
+            cooldownMs = 30_000L,
             requiresPartner = false
         )
     )
@@ -63,7 +63,7 @@ object ScriptLibrary {
                 ScriptStep(Performer.B, CharacterAction.LOOK_AT),
                 ScriptStep(Performer.BOTH, CharacterAction.BREATHE, 1_600L)
             ),
-            cooldownMs = 40_000L
+            cooldownMs = 22_000L
         ),
         InteractionScript(
             id = "pair_doze_watch",
@@ -75,7 +75,7 @@ object ScriptLibrary {
                 ScriptStep(Performer.B, CharacterAction.APPROACH),
                 ScriptStep(Performer.BOTH, CharacterAction.REST)
             ),
-            cooldownMs = 120_000L,
+            cooldownMs = 50_000L,
             priority = 1
         ),
         InteractionScript(
@@ -86,7 +86,7 @@ object ScriptLibrary {
                 ScriptStep(Performer.BOTH, CharacterAction.RHYTHM),
                 ScriptStep(Performer.BOTH, CharacterAction.RHYTHM)
             ),
-            cooldownMs = 25_000L,
+            cooldownMs = 20_000L,
             priority = 2
         )
     )
@@ -103,7 +103,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.B, CharacterAction.LOOK_AT),
                     ScriptStep(Performer.BOTH, CharacterAction.REST)
                 ),
-                cooldownMs = 90_000L,
+                cooldownMs = 40_000L,
                 priority = 1,
                 weight = 16
             ),
@@ -116,7 +116,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.A, CharacterAction.SHY),
                     ScriptStep(Performer.B, CharacterAction.SHY)
                 ),
-                cooldownMs = 70_000L,
+                cooldownMs = 30_000L,
                 weight = 12
             ),
             InteractionScript(
@@ -127,7 +127,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.A, CharacterAction.APPROACH),
                     ScriptStep(Performer.BOTH, CharacterAction.JUMP)
                 ),
-                cooldownMs = 80_000L,
+                cooldownMs = 36_000L,
                 weight = 10
             )
         )
@@ -143,7 +143,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.B, CharacterAction.SURPRISED),
                     ScriptStep(Performer.A, CharacterAction.WALK)
                 ),
-                cooldownMs = 75_000L,
+                cooldownMs = 34_000L,
                 priority = 1,
                 weight = 16
             ),
@@ -157,7 +157,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.A, CharacterAction.TEASE),
                     ScriptStep(Performer.B, CharacterAction.TEASE)
                 ),
-                cooldownMs = 60_000L,
+                cooldownMs = 26_000L,
                 weight = 14
             )
         )
@@ -175,7 +175,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.A, CharacterAction.WALK),
                     ScriptStep(Performer.B, CharacterAction.WALK)
                 ),
-                cooldownMs = 70_000L,
+                cooldownMs = 30_000L,
                 priority = 1,
                 weight = 16
             ),
@@ -189,7 +189,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.A, CharacterAction.GLARE),
                     ScriptStep(Performer.B, CharacterAction.GLARE)
                 ),
-                cooldownMs = 80_000L,
+                cooldownMs = 36_000L,
                 weight = 12
             )
         )
@@ -203,7 +203,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.B, CharacterAction.APPROACH),
                     ScriptStep(Performer.BOTH, CharacterAction.REST)
                 ),
-                cooldownMs = 90_000L,
+                cooldownMs = 40_000L,
                 priority = 1,
                 weight = 16
             ),
@@ -215,7 +215,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.A, CharacterAction.APPROACH),
                     ScriptStep(Performer.BOTH, CharacterAction.DOZE)
                 ),
-                cooldownMs = 120_000L,
+                cooldownMs = 50_000L,
                 weight = 12
             )
         )
@@ -230,7 +230,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.A, CharacterAction.GLANCE),
                     ScriptStep(Performer.B, CharacterAction.GLANCE)
                 ),
-                cooldownMs = 50_000L,
+                cooldownMs = 24_000L,
                 priority = 1,
                 weight = 14
             ),
@@ -243,7 +243,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.B, CharacterAction.WALK),
                     ScriptStep(Performer.BOTH, CharacterAction.BREATHE, 2_000L)
                 ),
-                cooldownMs = 45_000L,
+                cooldownMs = 22_000L,
                 weight = 12
             )
         )
@@ -258,7 +258,7 @@ object ScriptLibrary {
                     ScriptStep(Performer.A, CharacterAction.APPROACH),
                     ScriptStep(Performer.BOTH, CharacterAction.REST)
                 ),
-                cooldownMs = 70_000L,
+                cooldownMs = 32_000L,
                 priority = 1,
                 weight = 14
             )
@@ -279,7 +279,7 @@ object ScriptLibrary {
                         ScriptStep(Performer.B, CharacterAction.GLANCE),
                         ScriptStep(Performer.BOTH, CharacterAction.SHY)
                     ),
-                    cooldownMs = 60_000L,
+                    cooldownMs = 28_000L,
                     priority = 1,
                     weight = 14
                 )
@@ -297,7 +297,7 @@ object ScriptLibrary {
                     ScriptStep(admirer, CharacterAction.SHY),
                     ScriptStep(other, CharacterAction.BREATHE, 1_500L)
                 ),
-                cooldownMs = 55_000L,
+                cooldownMs = 25_000L,
                 priority = 1,
                 weight = 18
             ),
@@ -311,7 +311,7 @@ object ScriptLibrary {
                     ScriptStep(other, CharacterAction.LOOK_AT),
                     ScriptStep(admirer, CharacterAction.WALK)
                 ),
-                cooldownMs = 95_000L,
+                cooldownMs = 42_000L,
                 weight = 14
             ),
             InteractionScript(
@@ -323,9 +323,71 @@ object ScriptLibrary {
                     ScriptStep(admirer, CharacterAction.SURPRISED),
                     ScriptStep(admirer, CharacterAction.SHY)
                 ),
-                cooldownMs = 40_000L,
+                cooldownMs = 20_000L,
                 priority = 2,
                 weight = 12
+            )
+        )
+    }
+
+    /**
+     * 두 캐릭터가 가까워졌을 때의 장면.
+     * 사용자가 한 명을 끌어다 다른 한 명 옆에 놓는 경우가 대부분이라,
+     * 반응이 바로 나오도록 우선순위를 높이고 쿨다운을 짧게 잡았다.
+     */
+    private fun metScripts(type: RelationshipType, admirer: Performer?): List<InteractionScript> {
+        val steps = when (type) {
+            RelationshipType.LOVERS -> listOf(
+                ScriptStep(Performer.BOTH, CharacterAction.LOOK_AT),
+                ScriptStep(Performer.BOTH, CharacterAction.REST)
+            )
+
+            RelationshipType.FRIENDS -> listOf(
+                ScriptStep(Performer.BOTH, CharacterAction.SURPRISED),
+                ScriptStep(Performer.A, CharacterAction.TEASE),
+                ScriptStep(Performer.B, CharacterAction.TEASE)
+            )
+
+            RelationshipType.ONE_SIDED_LOVE -> {
+                val shy = admirer ?: Performer.A
+                val other = if (shy == Performer.A) Performer.B else Performer.A
+                listOf(
+                    ScriptStep(shy, CharacterAction.SURPRISED),
+                    ScriptStep(other, CharacterAction.LOOK_AT),
+                    ScriptStep(shy, CharacterAction.SHY)
+                )
+            }
+
+            RelationshipType.RIVALS -> listOf(
+                ScriptStep(Performer.BOTH, CharacterAction.SURPRISED),
+                ScriptStep(Performer.BOTH, CharacterAction.GLARE)
+            )
+
+            RelationshipType.FAMILY -> listOf(
+                ScriptStep(Performer.BOTH, CharacterAction.LOOK_AT),
+                ScriptStep(Performer.BOTH, CharacterAction.REST)
+            )
+
+            RelationshipType.COLLEAGUES -> listOf(
+                ScriptStep(Performer.A, CharacterAction.GLANCE),
+                ScriptStep(Performer.B, CharacterAction.GLANCE)
+            )
+
+            RelationshipType.CUSTOM -> listOf(
+                ScriptStep(Performer.BOTH, CharacterAction.LOOK_AT),
+                ScriptStep(Performer.BOTH, CharacterAction.BREATHE, 1_600L)
+            )
+        }
+
+        return listOf(
+            InteractionScript(
+                id = "met_${type.name.lowercase()}",
+                name = "마주쳤을 때",
+                trigger = SceneTrigger.CHARACTERS_MET,
+                steps = steps,
+                cooldownMs = 9_000L,
+                priority = 3,
+                weight = 20
             )
         )
     }
@@ -343,7 +405,10 @@ object ScriptLibrary {
             }
 
         val candidates: List<InteractionScript> = if (context.hasPartner) {
-            commonPairScripts() + scriptsFor(context.type) + directional
+            commonPairScripts() +
+                scriptsFor(context.type) +
+                directional +
+                metScripts(context.type, context.admirer)
         } else {
             soloScripts()
         }
@@ -374,17 +439,19 @@ object ScriptLibrary {
         val mischief = average(context.a.mischief, context.b?.mischief)
         val warmth = average(context.a.warmth, context.b?.warmth)
 
+        // 나누는 수가 클수록 성격이 결과에 덜 드러난다.
+        // 두 캐릭터의 차이가 눈에 보이도록 영향을 키웠다.
         if (actions.any { it == CharacterAction.WALK || it == CharacterAction.JUMP }) {
-            weight += (energy - 50) / 6
+            weight += (energy - 50) / 3
         }
         if (actions.any { it == CharacterAction.SHY || it == CharacterAction.GLANCE }) {
-            weight += (shyness - 50) / 6
+            weight += (shyness - 50) / 3
         }
         if (actions.contains(CharacterAction.TEASE)) {
-            weight += (mischief - 50) / 6
+            weight += (mischief - 50) / 3
         }
         if (actions.any { it == CharacterAction.REST || it == CharacterAction.APPROACH }) {
-            weight += (warmth - 50) / 6
+            weight += (warmth - 50) / 3
         }
         return weight.coerceAtLeast(1)
     }

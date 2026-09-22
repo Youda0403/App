@@ -37,8 +37,17 @@ class CharacterWindow(
     interface Callbacks {
         fun onTap(slot: Slot)
         fun onLongPress(slot: Slot)
-        fun onDragStart(slot: Slot)
-        fun onDrag(slot: Slot, deltaX: Float, deltaY: Float)
+        /** 손가락이 처음 닿은 화면 좌표를 함께 넘긴다. */
+        fun onDragStart(slot: Slot, rawX: Float, rawY: Float)
+
+        /**
+         * 손가락의 현재 화면 좌표.
+         *
+         * 이동량을 조금씩 더해 가면 터치 이벤트가 한 번 빠질 때마다 오차가 쌓이고,
+         * 화면 끝처럼 이벤트가 튀는 곳에서 캐릭터가 덜컥거린다.
+         * 절대 좌표를 넘겨 매번 처음 잡은 지점을 기준으로 다시 계산하게 한다.
+         */
+        fun onDrag(slot: Slot, rawX: Float, rawY: Float)
         fun onDragEnd(slot: Slot)
 
         /** 문지르는 동작이 감지됨. 끌기를 취소하고 쓰다듬기로 바꿔야 한다. */
@@ -151,8 +160,9 @@ class CharacterWindow(
         view.pose = pose
     }
 
-    fun setFacingRight(facingRight: Boolean) {
-        view.facingRight = facingRight
+    /** -1(왼쪽) ~ +1(오른쪽). 중간값을 주면 몸을 돌리는 중으로 보인다. */
+    fun setFacingFactor(factor: Float) {
+        view.facingFactor = factor
     }
 
     /** 창이 아니라 뷰에 투명도를 적용한다. 창 불투명도를 건드리면 터치 규칙과 얽힌다. */
@@ -253,7 +263,6 @@ class CharacterWindow(
 
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - lastX
-                val dy = event.rawY - lastY
 
                 updatePettingDetection(dx, event.rawX, event.rawY)
 
@@ -269,10 +278,10 @@ class CharacterWindow(
                 ) {
                     dragging = true
                     v.removeCallbacks(longPressRunnable)
-                    callbacks.onDragStart(slot)
+                    callbacks.onDragStart(slot, downRawX, downRawY)
                 }
                 if (dragging) {
-                    callbacks.onDrag(slot, dx, dy)
+                    callbacks.onDrag(slot, event.rawX, event.rawY)
                     lastX = event.rawX
                     lastY = event.rawY
                 }
@@ -340,7 +349,10 @@ class CharacterWindow(
         }
         lastMoveSign = sign
 
-        if (reversalCount >= REVERSALS_FOR_PET) {
+        // 방향만 여러 번 바뀌었다고 쓰다듬기는 아니다. 지금 손가락이 처음 자리
+        // 근처에 있어야 '제자리에서 문지르는 중'이라고 볼 수 있다.
+        val nearOrigin = abs(rawX - downRawX) < touchSlop * PET_TRIGGER_SLOPS
+        if (reversalCount >= REVERSALS_FOR_PET && nearOrigin) {
             petting = true
             dragging = false
             lastPetTickMs = 0L
@@ -360,16 +372,19 @@ class CharacterWindow(
         private const val TAG = "CharacterWindow"
 
         /** 문지르기로 셀 최소 이동량(px). 손 떨림을 걸러낸다. */
-        private const val MIN_RUB_PX = 10f
+        private const val MIN_RUB_PX = 7f
 
         /** 이만큼 방향이 바뀌면 쓰다듬는 것으로 본다. */
-        private const val REVERSALS_FOR_PET = 3
+        private const val REVERSALS_FOR_PET = 2
 
         /** 방향 전환이 이 시간 안에 몰려야 쓰다듬기로 센다. */
-        private const val PET_REVERSAL_WINDOW_MS = 650L
+        private const val PET_REVERSAL_WINDOW_MS = 900L
 
         /** 처음 자리에서 이 정도(터치 여유 배수)를 벗어나면 옮기는 동작으로 확정한다. */
-        private const val PET_MAX_TRAVEL_SLOPS = 3f
+        private const val PET_MAX_TRAVEL_SLOPS = 5f
+
+        /** 쓰다듬기로 판정하는 순간 손가락이 처음 자리에서 벗어나도 되는 한도. */
+        private const val PET_TRIGGER_SLOPS = 2.5f
 
         private const val PET_TICK_INTERVAL_MS = 260L
 
