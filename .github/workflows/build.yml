@@ -84,14 +84,20 @@ jobs:
       - name: Releases 에 게시 (휴대폰에서 바로 내려받기)
         env:
           GH_TOKEN: ${{ github.token }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
         run: |
           TAG="build-${{ github.run_number }}"
           cp "$APK" "pairplay-${TAG}.apk"
+          {
+            echo "커밋: ${COMMIT_SHA}"
+            echo "브랜치: ${BRANCH_NAME}"
+            echo ""
+            echo "휴대폰에서 아래 apk 파일을 눌러 설치하세요."
+            echo "처음 설치할 때는 '출처를 알 수 없는 앱 설치 허용'이 필요하고,"
+            echo "Play 프로텍트 경고가 뜰 수 있습니다."
+          } > release-notes.md
           gh release create "$TAG" "pairplay-${TAG}.apk" \
             --title "PAIRPLAY $TAG" \
-            --notes "커밋: ${{ github.sha }}
-브랜치: ${{ github.ref_name }}
-
-휴대폰에서 아래 apk 파일을 눌러 설치하세요.
-처음 설치할 때는 '출처를 알 수 없는 앱 설치 허용'이 필요하고, Play 프로텍트 경고가 뜰 수 있습니다." \
-            --target "${{ github.sha }}"
+            --notes-file release-notes.md \
+            --target "${COMMIT_SHA}"
