@@ -13,6 +13,7 @@ import com.pairplay.app.ui.screens.CharactersScreen
 import com.pairplay.app.ui.screens.HomeScreen
 import com.pairplay.app.ui.screens.OnboardingScreen
 import com.pairplay.app.ui.screens.OverlaySettingsScreen
+import com.pairplay.app.ui.screens.RelationshipScreen
 import com.pairplay.app.ui.screens.SizeMatchScreen
 
 object Routes {
@@ -22,6 +23,7 @@ object Routes {
     const val CHARACTER_EDIT = "character/{characterId}"
     const val SETTINGS = "settings"
     const val SIZE_MATCH = "size_match"
+    const val RELATIONSHIP = "relationship"
 
     fun characterEdit(id: Long) = "character/$id"
 }
@@ -54,7 +56,16 @@ fun PairPlayNavHost(viewModel: PairPlayViewModel) {
                 viewModel = viewModel,
                 onOpenCharacters = { navController.navigate(Routes.CHARACTERS) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
-                onOpenSizeMatch = { navController.navigate(Routes.SIZE_MATCH) }
+                onOpenSizeMatch = { navController.navigate(Routes.SIZE_MATCH) },
+                onOpenRelationship = { navController.navigate(Routes.RELATIONSHIP) }
+            )
+        }
+
+        composable(Routes.RELATIONSHIP) {
+            RelationshipScreen(
+                state = state,
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
             )
         }
 

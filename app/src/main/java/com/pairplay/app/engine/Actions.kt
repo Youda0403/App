@@ -31,7 +31,22 @@ enum class CharacterAction(
     LEAN("lean", 4_000L),
 
     /** 쓰다듬어 줄 때. 기분 좋게 몸을 흔든다. */
-    PET("pet", 1_600L);
+    PET("pet", 1_600L),
+
+    /** 상대를 힐끗 본다. 짝사랑처럼 티 내지 않는 관계에 쓴다. */
+    GLANCE("glance", 900L),
+
+    /** 장난치기. 톡 건드리고 물러나는 느낌. */
+    TEASE("tease", 1_200L),
+
+    /** 수줍어 몸을 움츠린다. */
+    SHY("shy", 1_400L),
+
+    /** 나란히 쉬기. 한자리에 자리 잡고 느리게 숨 쉰다. */
+    REST("rest", 4_500L),
+
+    /** 상대를 견제하듯 노려본다. 라이벌 관계에 쓴다. */
+    GLARE("glare", 1_600L);
 
     companion object {
         fun fromId(id: String?): CharacterAction =
@@ -95,6 +110,11 @@ object PoseCalculator {
             CharacterAction.BUMP -> bump(t)
             CharacterAction.LEAN -> lean(t, seed)
             CharacterAction.PET -> pet(t, heightPx)
+            CharacterAction.GLANCE -> glance(t)
+            CharacterAction.TEASE -> tease(t, heightPx)
+            CharacterAction.SHY -> shy(t, heightPx)
+            CharacterAction.REST -> rest(t, seed)
+            CharacterAction.GLARE -> glare(t)
         }
     }
 
@@ -186,6 +206,52 @@ object PoseCalculator {
         return Pose(
             scaleY = 1f + sway * 0.008f,
             rotationDeg = 5f + sway * 1.5f
+        )
+    }
+
+    /** 고개만 슬쩍 돌렸다 되돌린다. 티 나지 않게 작게. */
+    private fun glance(t: Float): Pose {
+        val swing = sin(t * Math.PI.toFloat())
+        return Pose(rotationDeg = swing * 3.5f)
+    }
+
+    /** 톡 건드리고 물러나는 장난. 앞으로 기울었다 뒤로 젖힌다. */
+    private fun tease(t: Float, heightPx: Float): Pose {
+        val lean = sin(t * 2f * Math.PI.toFloat())
+        return Pose(
+            scaleY = 1f + abs(lean) * 0.03f,
+            rotationDeg = lean * 6f,
+            offsetY = -abs(lean) * heightPx * 0.025f
+        )
+    }
+
+    /** 몸을 살짝 움츠리고 고개를 돌린다. */
+    private fun shy(t: Float, heightPx: Float): Pose {
+        val curl = sin(t * Math.PI.toFloat())
+        return Pose(
+            scaleX = 1f - curl * 0.02f,
+            scaleY = 1f - curl * 0.025f,
+            rotationDeg = -curl * 5f,
+            offsetY = curl * heightPx * 0.012f
+        )
+    }
+
+    /** 자리 잡고 느리게 숨 쉬며 쉰다. */
+    private fun rest(t: Float, seed: Float): Pose {
+        val breath = sin((t + seed) * 2f * Math.PI.toFloat())
+        return Pose(
+            scaleX = 1f - breath * 0.006f,
+            scaleY = 0.985f + breath * 0.01f,
+            rotationDeg = 2.5f + breath * 1f
+        )
+    }
+
+    /** 몸을 곧추세우고 상대를 노려본다. */
+    private fun glare(t: Float): Pose {
+        val tense = sin(t * Math.PI.toFloat())
+        return Pose(
+            scaleY = 1f + tense * 0.02f,
+            rotationDeg = -tense * 3f
         )
     }
 

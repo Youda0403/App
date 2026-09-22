@@ -10,11 +10,19 @@ import android.view.WindowManager
 import com.pairplay.app.data.CharacterEntity
 import com.pairplay.app.data.OverlayMode
 import com.pairplay.app.data.OverlaySettings
+import com.pairplay.app.data.PairEntity
+import com.pairplay.app.data.RelationshipDirection
+import com.pairplay.app.data.RelationshipType
+import com.pairplay.app.data.SceneTrigger
 import com.pairplay.app.engine.CharacterAction
 import com.pairplay.app.engine.EffectEmitter
 import com.pairplay.app.engine.EffectKind
 import com.pairplay.app.engine.Pose
+import com.pairplay.app.engine.CharacterTraits
+import com.pairplay.app.engine.Performer
 import com.pairplay.app.engine.PoseCalculator
+import com.pairplay.app.engine.RelationshipContext
+import com.pairplay.app.engine.SceneDirector
 import java.io.File
 import kotlin.math.abs
 import kotlin.random.Random
@@ -68,6 +76,9 @@ class OverlayController(
         val effects = EffectEmitter()
     }
 
+    /** 상황극 스케줄러. 누가 언제 무엇을 할지는 전부 여기가 정한다. */
+    private val director = SceneDirector()
+
     private val choreographer = Choreographer.getInstance()
     private var running = false
 
@@ -76,6 +87,13 @@ class OverlayController(
 
     private var settings = OverlaySettings()
     private var musicPlaying = false
+
+    /**
+     * 마지막으로 스케줄러에 넘긴 관계 정보.
+     * 설정을 조금 건드릴 때마다 장면이 끊기고 쿨다운이 풀리면 곤란하므로,
+     * 실제로 달라졌을 때만 다시 넘긴다.
+     */
+    private var lastContext: RelationshipContext? = null
 
     /** '일정 시간 숨김'이 끝났는지 주기적으로 확인하기 위한 시각. */
     private var lastVisibilityCheck = 0L
@@ -102,7 +120,7 @@ class OverlayController(
      * 표시할 캐릭터를 갈아끼운다. [a] 만 주면 한 명만 띄운다.
      * 설정을 바꿀 때마다 오버레이를 껐다 켤 필요가 없도록 이 메서드로 즉시 반영한다.
      */
-    fun setCharacters(a: CharacterEntity?, b: CharacterEntity?) {
+    fun setCharacters(a: CharacterEntity?, b: CharacterEntity?, pair: PairEntity?) {
         // id 가 아니라 내용 전체를 비교한다. 이름/크기/기준점/반전을 고치면
         // 오버레이를 껐다 켜지 않아도 바로 다시 그려져야 하기 때문이다.
         val keepA = a != null && runtimeA?.entity == a
@@ -118,7 +136,40 @@ class OverlayController(
         }
         applySettingsToWindows()
         placeInitialPositions()
+        configureDirector(a, b, pair)
     }
+
+    /**
+     * 관계와 성격을 스케줄러에 넘긴다.
+     * 관계는 사용자가 정한 대로만 쓰고, 앱이 스스로 바꾸지 않는다.
+     */
+    private fun configureDirector(a: CharacterEntity?, b: CharacterEntity?, pair: PairEntity?) {
+        if (a == null) return
+        val partner = b.takeIf { settings.mode == OverlayMode.PAIR }
+        val context = RelationshipContext(
+            type = RelationshipType.fromName(pair?.relationship),
+            direction = RelationshipDirection.fromName(pair?.direction),
+            a = a.toTraits(),
+            b = partner?.toTraits()
+        )
+        if (context == lastContext) return
+
+        lastContext = context
+        director.configure(context)
+        director.reset()
+    }
+
+    private fun CharacterEntity.toTraits(): CharacterTraits = CharacterTraits(
+        warmth = traitWarmth,
+        shyness = traitShyness,
+        energy = traitEnergy,
+        mischief = traitMischief,
+        assertiveness = traitAssertiveness,
+        blockedActions = blockedActions.split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+    )
 
     fun updateSettings(newSettings: OverlaySettings) {
         val previous = settings
@@ -152,15 +203,20 @@ class OverlayController(
 
         if (playing) {
             val now = System.currentTimeMillis()
+            val sceneStarted = director.onTrigger(SceneTrigger.MUSIC_STARTED, now)
             forEachRuntime { runtime ->
                 if (!runtime.interactionHeld) {
-                    startAction(runtime, CharacterAction.RHYTHM, now)
+                    if (sceneStarted) {
+                        applyDirection(runtime, now)
+                    } else {
+                        startAction(runtime, CharacterAction.RHYTHM, now)
+                    }
                     spawnEffect(runtime, EffectKind.NOTE, 3, now)
                 }
             }
         }
         // 멈출 때는 아무것도 끊지 않는다. tick 이 동작을 끝까지 재생한 뒤
-        // chooseNextAction 이 리듬 대신 다른 동작을 고른다.
+        // 스케줄러가 다음 동작부터 리듬 대신 다른 것을 고른다.
     }
 
     fun start() {
@@ -177,6 +233,7 @@ class OverlayController(
 
     fun release() {
         stop()
+        director.reset()
         runtimeA?.let { teardown(it) }
         runtimeB?.let { teardown(it) }
         runtimeA = null
@@ -400,7 +457,7 @@ class OverlayController(
         )
     }
 
-    /** 동작이 끝났다. 벽에 부딪혔으면 그 연출부터 하고, 아니면 다음 동작을 고른다. */
+    /** 동작이 끝났다. 벽에 부딪혔으면 그 연출부터 하고, 아니면 스케줄러에게 묻는다. */
     private fun advanceAction(runtime: Runtime, now: Long) {
         if (runtime.willHitWall) {
             runtime.willHitWall = false
@@ -409,15 +466,34 @@ class OverlayController(
             startAction(runtime, CharacterAction.BUMP, now)
             return
         }
-        startAction(runtime, chooseNextAction(runtime), now)
+        applyDirection(runtime, now)
     }
 
-    private fun startAction(runtime: Runtime, action: CharacterAction, now: Long) {
+    /** 스케줄러가 정해 준 동작을 시작한다. */
+    private fun applyDirection(runtime: Runtime, now: Long) {
+        val direction = director.nextDirection(
+            performer = performerOf(runtime),
+            now = now,
+            musicPlaying = musicPlaying && settings.musicReactionEnabled,
+            nearEdge = isNearEdge(runtime)
+        )
+        startAction(runtime, direction.action, now, direction.durationMs)
+    }
+
+    private fun performerOf(runtime: Runtime): Performer =
+        if (runtime === runtimeA) Performer.A else Performer.B
+
+    private fun startAction(
+        runtime: Runtime,
+        action: CharacterAction,
+        now: Long,
+        durationMs: Long = 0L
+    ) {
         runtime.blendFrom = runtime.lastPose
         runtime.blendStart = now
         runtime.action = action
         runtime.actionStart = now
-        runtime.actionDuration = action.defaultDurationMs
+        runtime.actionDuration = if (durationMs > 0L) durationMs else action.defaultDurationMs
 
         when (action) {
             CharacterAction.WALK -> setupWalk(runtime)
@@ -462,43 +538,6 @@ class OverlayController(
         runtime.facingRight = runtime.walkToX >= runtime.walkFromX
     }
 
-    /**
-     * 다음 동작을 고른다. 1차에서는 성격 수치로 가중치만 조정하는 단순한 방식이다.
-     * 2차에서 장면 스케줄러가 이 자리를 대신한다.
-     */
-    private fun chooseNextAction(runtime: Runtime): CharacterAction {
-        if (musicPlaying && settings.musicReactionEnabled) {
-            return if (Random.nextFloat() < 0.75f) CharacterAction.RHYTHM else CharacterAction.JUMP
-        }
-
-        val traits = runtime.entity
-        val hasPartner = otherOf(runtime) != null && settings.mode == OverlayMode.PAIR
-
-        val candidates = buildList {
-            add(CharacterAction.IDLE to 30)
-            add(CharacterAction.BREATHE to 25)
-            add(CharacterAction.WALK to 10 + traits.traitEnergy / 5)
-            add(CharacterAction.JUMP to 4 + traits.traitMischief / 8)
-            add(CharacterAction.DOZE to 6 + (100 - traits.traitEnergy) / 8)
-            if (isNearEdge(runtime)) {
-                add(CharacterAction.LEAN to 14)
-            }
-            if (hasPartner) {
-                add(CharacterAction.LOOK_AT to 8 + traits.traitWarmth / 8)
-                add(CharacterAction.APPROACH to 4 + traits.traitAssertiveness / 10)
-            }
-        }
-
-        val total = candidates.sumOf { it.second }
-        if (total <= 0) return CharacterAction.IDLE
-        var roll = Random.nextInt(total)
-        for ((action, weight) in candidates) {
-            roll -= weight
-            if (roll < 0) return action
-        }
-        return CharacterAction.IDLE
-    }
-
     private fun isNearEdge(runtime: Runtime): Boolean {
         if (screenWidth <= 0f) return false
         val x = runtime.window.anchorX
@@ -523,11 +562,16 @@ class OverlayController(
         startAction(runtime, CharacterAction.SURPRISED, now)
         spawnEffect(runtime, EffectKind.HEART, 2, now)
 
-        // 짝이 있으면 놀란 쪽을 바라본다.
-        otherOf(runtime)?.let { other ->
-            if (!other.interactionHeld) {
-                other.facingRight = runtime.window.anchorX >= other.window.anchorX
-                startAction(other, CharacterAction.LOOK_AT, now)
+        // 터치에 반응하는 장면이 있으면 놀란 직후 그 장면이 이어진다.
+        val sceneStarted = director.onTrigger(SceneTrigger.TAP_CHARACTER, now)
+
+        // 장면이 잡히지 않았을 때만 짝이 직접 쳐다본다.
+        if (!sceneStarted) {
+            otherOf(runtime)?.let { other ->
+                if (!other.interactionHeld) {
+                    other.facingRight = runtime.window.anchorX >= other.window.anchorX
+                    startAction(other, CharacterAction.LOOK_AT, now)
+                }
             }
         }
     }
@@ -544,6 +588,8 @@ class OverlayController(
         runtime.interactionHeld = true
         runtime.heldAnchorX = runtime.window.anchorX
         runtime.heldAnchorY = runtime.window.anchorY
+        // 한쪽을 붙잡으면 둘이 맞춰 가던 장면을 이어갈 수 없다.
+        director.abandonCurrentScript()
         startAction(runtime, CharacterAction.IDLE, now)
 
         if (settings.linkedDrag) {
@@ -574,6 +620,7 @@ class OverlayController(
         runtime.window.setAnchor(runtime.heldAnchorX, runtime.heldAnchorY)
         runtime.window.commit()
         runtime.interactionHeld = true
+        director.abandonCurrentScript()
         startAction(runtime, CharacterAction.PET, now)
     }
 

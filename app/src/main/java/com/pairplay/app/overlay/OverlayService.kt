@@ -130,7 +130,11 @@ class OverlayService : LifecycleService() {
                 }
 
                 controller?.updateSettings(settings)
-                controller?.setCharacters(a, if (settings.mode == OverlayMode.PAIR) b else null)
+                controller?.setCharacters(
+                    a = a,
+                    b = if (settings.mode == OverlayMode.PAIR) b else null,
+                    pair = pair
+                )
                 updateNotification(settings)
             }
         }

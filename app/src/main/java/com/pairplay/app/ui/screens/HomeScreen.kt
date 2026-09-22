@@ -33,7 +33,8 @@ fun HomeScreen(
     viewModel: PairPlayViewModel,
     onOpenCharacters: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenSizeMatch: () -> Unit
+    onOpenSizeMatch: () -> Unit,
+    onOpenRelationship: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -112,6 +113,9 @@ fun HomeScreen(
                 Button(onClick = onOpenCharacters, modifier = Modifier.fillMaxWidth()) {
                     Text("캐릭터 관리")
                 }
+                Button(onClick = onOpenRelationship, modifier = Modifier.fillMaxWidth()) {
+                    Text("관계와 행동 설정")
+                }
                 Button(onClick = onOpenSizeMatch, modifier = Modifier.fillMaxWidth()) {
                     Text("두 캐릭터 키 맞추기")
                 }
@@ -131,7 +135,7 @@ fun HomeScreen(
 
             SectionCard("아직 준비 중") {
                 Text(
-                    "관계 엔진, 상황극 스케줄러, 장면 편집기, 홈 화면 위젯은 다음 버전에서 추가됩니다. " +
+                    "장면 편집기와 홈 화면 위젯은 다음 버전에서 추가됩니다. " +
                         "지금 저장하는 캐릭터와 설정은 그대로 이어져요.",
                     style = MaterialTheme.typography.bodySmall
                 )

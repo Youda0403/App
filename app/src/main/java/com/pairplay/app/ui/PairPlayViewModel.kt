@@ -11,6 +11,9 @@ import com.pairplay.app.data.OverlayMode
 import com.pairplay.app.data.OverlaySettings
 import com.pairplay.app.data.OverlaySettingsStore
 import com.pairplay.app.data.PairEntity
+import com.pairplay.app.data.RelationshipDirection
+import com.pairplay.app.data.RelationshipType
+import com.pairplay.app.engine.CharacterAction
 import com.pairplay.app.image.ImageImporter
 import com.pairplay.app.music.MusicWatcher
 import com.pairplay.app.overlay.OverlayService
@@ -152,6 +155,46 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
                 .filter { it.displayHeightDp != height }
                 .forEach { repository.updateCharacter(it.copy(displayHeightDp = height)) }
             message.value = "두 캐릭터의 키를 ${height}dp 로 맞췄어요."
+        }
+    }
+
+    /**
+     * 관계를 바꾼다. 관계는 사용자만 바꿀 수 있고 앱이 스스로 바꾸지 않는다.
+     * 아직 짝이 만들어지지 않았다면 지금 캐릭터들로 만들어 준다.
+     */
+    fun setRelationship(
+        type: RelationshipType,
+        direction: RelationshipDirection,
+        customLabel: String?
+    ) {
+        viewModelScope.launch {
+            val state = _uiState.value
+            var pair = repository.getActivePair()
+            if (pair == null) {
+                val a = state.characterA ?: return@launch
+                repository.setActivePair(a.id, state.characterB?.id)
+                pair = repository.getActivePair() ?: return@launch
+            }
+            repository.updatePair(
+                pair.copy(
+                    relationship = type.name,
+                    direction = if (type.needsDirection) {
+                        direction.name
+                    } else {
+                        RelationshipDirection.MUTUAL.name
+                    },
+                    customRelationshipLabel = customLabel?.takeIf { it.isNotBlank() }
+                )
+            )
+        }
+    }
+
+    /** 이 캐릭터가 하지 않을 동작을 정한다. 장면에 그 동작이 있으면 장면째로 빠진다. */
+    fun setBlockedActions(character: CharacterEntity, blocked: Set<CharacterAction>) {
+        viewModelScope.launch {
+            repository.updateCharacter(
+                character.copy(blockedActions = blocked.joinToString(",") { it.id })
+            )
         }
     }
 
