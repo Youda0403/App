@@ -9,13 +9,22 @@ plugins {
 }
 
 /**
- * CI는 KEYSTORE_BASE64 시크릿을 파일로 풀어 릴리스 APK를 서명한다.
- * 시크릿이 없는 로컬/포크 빌드에서는 null 을 돌려주고 debug 키로 서명한다.
+ * Gradle 데몬은 gradlew 를 부른 쉘의 환경 변수를 그대로 물려받지 않는다.
+ * System.getenv 로 읽으면 데몬이 처음 뜬 시점의 환경이 잡혀서, 서명 키가 있는데도
+ * debug 키로 서명되는 일이 생긴다. providers.environmentVariable 은 호출하는 쪽의
+ * 환경을 제대로 읽으므로 반드시 이쪽을 쓴다.
  */
-val buildNumber: Int = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toIntOrNull() ?: 1
 
-val releaseKeystore: File? = System.getenv("KEYSTORE_BASE64")
-    ?.takeIf { it.isNotBlank() }
+fun env(name: String): String? =
+    providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+
+val buildNumber: Int = env("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+
+/**
+ * CI 는 KEYSTORE_BASE64 시크릿을 파일로 풀어 릴리스 APK 를 서명한다.
+ * 시크릿이 없는 로컬 빌드에서는 null 을 돌려주고 debug 키로 서명한다.
+ */
+val releaseKeystore: File? = env("KEYSTORE_BASE64")
     ?.let { encoded ->
         val target = File(layout.buildDirectory.get().asFile, "pairplay-release.jks")
         target.parentFile.mkdirs()
@@ -46,9 +55,9 @@ android {
         if (releaseKeystore != null) {
             create("release") {
                 storeFile = releaseKeystore
-                storePassword = System.getenv("KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("KEY_ALIAS")
-                keyPassword = System.getenv("KEY_PASSWORD")
+                storePassword = env("KEYSTORE_PASSWORD")
+                keyAlias = env("KEY_ALIAS")
+                keyPassword = env("KEY_PASSWORD")
             }
         }
     }
