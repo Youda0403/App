@@ -34,8 +34,7 @@ fun HomeScreen(
     onOpenCharacters: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSizeMatch: () -> Unit,
-    onOpenRelationship: () -> Unit,
-    onOpenScenes: () -> Unit
+    onOpenRelationship: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -124,9 +123,6 @@ fun HomeScreen(
                 Button(onClick = onOpenRelationship, modifier = Modifier.fillMaxWidth()) {
                     Text("관계와 행동 설정")
                 }
-                Button(onClick = onOpenScenes, modifier = Modifier.fillMaxWidth()) {
-                    Text("장면 편집")
-                }
                 Button(onClick = onOpenSizeMatch, modifier = Modifier.fillMaxWidth()) {
                     Text("두 캐릭터 키 맞추기")
                 }
@@ -136,7 +132,7 @@ fun HomeScreen(
             }
 
             SectionCard("사용 요령") {
-                Text("• 캐릭터를 끌어서 옮길 수 있어요.")
+                Text("• 캐릭터를 끌면 손가락에 대롱대롱 매달려요.")
                 Text("• 캐릭터를 톡 치면 하트가 뜨고, 짝이 있으면 쳐다봐요.")
                 Text("• 한 명을 끌어다 다른 한 명 옆에 놓으면 서로 반응해요.")
                 Text("• 머리 위 말풍선이 지금 기분을 알려 줘요.")

@@ -44,26 +44,35 @@ enum class BubbleSymbol {
 object BubbleMapper {
 
     fun forAction(action: CharacterAction, inScene: Boolean): BubbleSymbol? = when (action) {
+        // 짧고 분명한 순간에만 띄운다.
         CharacterAction.SURPRISED -> BubbleSymbol.EXCLAIM
         CharacterAction.BUMP -> BubbleSymbol.EXCLAIM
-        CharacterAction.DOZE -> BubbleSymbol.SLEEP
-        CharacterAction.REST -> BubbleSymbol.HEART
-        CharacterAction.RHYTHM -> BubbleSymbol.NOTE
         CharacterAction.PET -> BubbleSymbol.HEART
         CharacterAction.SHY -> BubbleSymbol.SWEAT
         CharacterAction.GLARE -> BubbleSymbol.ANGER
         CharacterAction.TEASE -> BubbleSymbol.SPARKLE
-        CharacterAction.GLANCE -> BubbleSymbol.ELLIPSIS
-        CharacterAction.LOOK_AT -> BubbleSymbol.ELLIPSIS
+        CharacterAction.DOZE -> BubbleSymbol.SLEEP
 
-        // 아래는 장면 안에서 벌어질 때만 알린다.
-        // 혼자 걷거나 뛰는 것까지 일일이 표시하면 화면이 시끄럽다.
+        // 장면 안에서 벌어질 때만 알린다.
+        CharacterAction.REST -> if (inScene) BubbleSymbol.HEART else null
         CharacterAction.APPROACH -> if (inScene) BubbleSymbol.HEART else null
-        CharacterAction.JUMP -> if (inScene) BubbleSymbol.SPARKLE else null
 
+        // 아래는 너무 자주 나와서 띄우지 않는다.
+        // 쳐다보거나 걷는 것까지 일일이 알리면 표시가 흔해져 재미가 없어진다.
+        CharacterAction.GLANCE,
+        CharacterAction.LOOK_AT,
+        CharacterAction.RHYTHM,
+        CharacterAction.JUMP,
         CharacterAction.IDLE,
         CharacterAction.BREATHE,
         CharacterAction.WALK,
+        CharacterAction.DANGLE,
         CharacterAction.LEAN -> null
     }
+
+    /**
+     * 같은 표시를 연달아 띄우지 않기 위한 최소 간격.
+     * 표시는 가끔 나와야 눈에 들어온다.
+     */
+    const val MIN_INTERVAL_MS = 9_000L
 }

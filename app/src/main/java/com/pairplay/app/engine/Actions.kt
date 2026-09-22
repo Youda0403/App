@@ -39,7 +39,10 @@ enum class CharacterAction(
     LEAN("lean", 4_000L, loops = true),
 
     /** 쓰다듬어 줄 때. 기분 좋게 몸을 흔든다. */
-    PET("pet", 1_600L),
+    PET("pet", 1_600L, loops = true),
+
+    /** 손가락에 집혀 대롱대롱 매달린 상태. */
+    DANGLE("dangle", 1_000L, loops = true),
 
     /** 상대를 힐끗 본다. 짝사랑처럼 티 내지 않는 관계에 쓴다. */
     GLANCE("glance", 900L),
@@ -96,7 +99,11 @@ object PoseBounds {
     /** 아래로 가라앉는 최대치 (캐릭터 높이 대비). */
     const val MAX_OFFSET_DOWN_RATIO = 0.03f
 
-    const val MAX_ROTATION_DEG = 8f
+    /**
+     * 손가락에 매달려 흔들리는 모습이 보이려면 8도로는 모자라다.
+     * 올리면 창 여백도 같이 커지므로(= 터치를 가로채는 면적) 꼭 필요한 만큼만 올렸다.
+     */
+    const val MAX_ROTATION_DEG = 12f
 }
 
 /**
@@ -118,6 +125,9 @@ object PoseCalculator {
             CharacterAction.BUMP -> bump(t)
             CharacterAction.LEAN -> lean(t, seed)
             CharacterAction.PET -> pet(t, heightPx)
+            // 매달린 모습은 손가락 움직임에 따라 달라지므로 진행도로 만들지 않는다.
+            // 컨트롤러가 danglePose 로 따로 계산한다.
+            CharacterAction.DANGLE -> Pose.NEUTRAL
             CharacterAction.GLANCE -> glance(t)
             CharacterAction.TEASE -> tease(t, heightPx)
             CharacterAction.SHY -> shy(t, heightPx)
@@ -133,6 +143,25 @@ object PoseCalculator {
     fun jumpHeight(progress: Float, heightPx: Float): Float {
         val t = progress.coerceIn(0f, 1f)
         return 0.28f * heightPx * (1f - (2f * t - 1f) * (2f * t - 1f))
+    }
+
+    /**
+     * 손가락에 매달려 흔들리는 자세.
+     *
+     * [swingDeg] 는 끌리는 속도에서 나온 기울기다. 진행도가 아니라 지금 속도로
+     * 정해지므로 다른 동작과 계산 방식이 다르다.
+     * 어떤 값이 들어와도 [PoseBounds] 를 넘지 않게 잘라 낸다.
+     */
+    fun danglePose(swingDeg: Float, heightPx: Float): Pose {
+        val swing = swingDeg.coerceIn(-PoseBounds.MAX_ROTATION_DEG, PoseBounds.MAX_ROTATION_DEG)
+        // 매달리면 몸이 살짝 늘어진다.
+        val stretch = abs(swing) / PoseBounds.MAX_ROTATION_DEG
+        return Pose(
+            scaleX = 1f - stretch * 0.02f,
+            scaleY = 1f + stretch * 0.03f,
+            rotationDeg = swing,
+            offsetY = heightPx * 0.01f * stretch
+        )
     }
 
     private fun breathe(t: Float, seed: Float): Pose {

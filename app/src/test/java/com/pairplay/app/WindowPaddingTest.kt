@@ -61,6 +61,40 @@ class WindowPaddingTest {
         }
     }
 
+    /**
+     * 매달린 자세는 진행도가 아니라 끌리는 속도로 정해진다.
+     * 다른 동작과 계산 방식이 달라 따로 확인한다. 여기가 여백을 넘으면
+     * 손가락에 매달린 캐릭터가 잘려 보인다.
+     */
+    @Test
+    fun `매달린 자세도 창 안에 들어온다`() {
+        val sizes = listOf(80f to 140f, 300f to 120f, 50f to 400f)
+
+        for ((width, height) in sizes) {
+            val padding = WindowPaddingCalculator.forCharacter(width, height)
+            val limitX = width / 2f + padding.x
+            val limitY = height / 2f + padding.y
+
+            // 범위를 한참 벗어난 값을 넣어도 안전해야 한다.
+            for (step in -40..40) {
+                val swing = step * 1.5f
+                val pose = PoseCalculator.danglePose(swing, height)
+                for (mirror in listOf(1f, -1f)) {
+                    for ((x, y) in transformedCorners(pose, width, height, mirror)) {
+                        assertTrue(
+                            "매달림 ${swing}도에서 가로로 ${abs(x)} 까지 나갔습니다 (한계 $limitX)",
+                            abs(x) <= limitX + TOLERANCE
+                        )
+                        assertTrue(
+                            "매달림 ${swing}도에서 세로로 ${abs(y)} 까지 나갔습니다 (한계 $limitY)",
+                            abs(y) <= limitY + TOLERANCE
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     @Test
     fun `크기가 0 이어도 터지지 않는다`() {
         val padding = WindowPaddingCalculator.forCharacter(0f, 0f)

@@ -20,7 +20,6 @@ import com.pairplay.app.engine.EffectEmitter
 import com.pairplay.app.engine.EffectKind
 import com.pairplay.app.engine.Pose
 import com.pairplay.app.engine.BubbleMapper
-import com.pairplay.app.engine.BubbleSymbol
 import com.pairplay.app.engine.CharacterTraits
 import com.pairplay.app.engine.Performer
 import com.pairplay.app.engine.PoseCalculator
@@ -71,6 +70,13 @@ class OverlayController(
         var grabOffsetX: Float = 0f
         var grabOffsetY: Float = 0f
 
+        /** 끌리는 속도(px/프레임). 매달려 흔들리는 정도를 정한다. */
+        var dragVelocity: Float = 0f
+
+        /** 이번 동작에서 띄우기로 한 기분 표시. 동작이 시작할 때 한 번만 정한다. */
+        var bubble: com.pairplay.app.engine.BubbleSymbol? = null
+        var lastBubbleAt: Long = 0L
+
         /** 이번 이동이 화면 가장자리에 막혀서 끝나는지. 끝나면 부딪히는 연출을 한다. */
         var willHitWall: Boolean = false
 
@@ -117,6 +123,9 @@ class OverlayController(
 
     /** 직전 프레임에 둘이 닿아 있었는지. 새로 닿는 순간에만 부딪히는 연출을 한다. */
     private var charactersTouching = false
+
+    /** 닿았을 때 서로 밀어낼 방향. 매 프레임 다시 정하지 않는다. */
+    private var separationDirection = 1f
 
     private var lastSceneName: String? = null
 
@@ -455,10 +464,16 @@ class OverlayController(
             }
         }
 
-        if (runtime.interactionHeld && runtime.action != CharacterAction.PET) {
-            // 끌고 있는 동안에는 집어 든 자세로 고정한다.
-            // 창이 빠르게 움직이는 중에 안쪽 그림까지 매 프레임 다시 그리면,
-            // 창 이동과 그리기가 서로 다른 프레임에 반영되면서 튀어 보인다.
+        if (runtime.action == CharacterAction.DANGLE) {
+            // 손가락에 매달려 흔들린다. 끌리는 속도만큼 몸이 뒤로 처진다.
+            // 손가락이 멈춰 있으면 속도가 0 으로 잦아들어 다시 그리지 않는다.
+            runtime.dragVelocity *= VELOCITY_DECAY
+            val swing = (-runtime.dragVelocity * SWING_PER_PX)
+                .coerceIn(-MAX_SWING_DEG, MAX_SWING_DEG)
+            val pose = PoseCalculator.danglePose(swing, runtime.displayHeight)
+            runtime.lastPose = pose
+            runtime.window.setPose(pose)
+        } else if (runtime.interactionHeld && runtime.action != CharacterAction.PET) {
             if (now - runtime.blendStart < BLEND_MS) {
                 val settle = blended(runtime, Pose.NEUTRAL, now)
                 runtime.lastPose = settle
@@ -523,11 +538,7 @@ class OverlayController(
 
     private fun syncEffectWindow(runtime: Runtime, now: Long) {
         val rendered = runtime.effects.render(now)
-        val symbol = if (settings.bubblesEnabled) {
-            BubbleMapper.forAction(runtime.action, runtime.currentScriptId != null)
-        } else {
-            null
-        }
+        val symbol = runtime.bubble
         val alpha = if (symbol == null) 0f else bubbleAlpha(runtime, now)
 
         runtime.effectWindow.setContent(rendered, symbol, alpha)
@@ -539,6 +550,25 @@ class OverlayController(
             runtime.window.anchorX - width / 2f,
             runtime.window.headTopY - height + runtime.displayHeight * EFFECT_OVERLAP_RATIO
         )
+    }
+
+    /**
+     * 이번 동작에 기분 표시를 띄울지 정한다.
+     *
+     * 동작이 시작할 때 한 번만 정한다. 매 프레임 다시 따지면 같은 동작 안에서
+     * 표시가 깜빡인다. 연달아 띄우지 않도록 최소 간격도 여기서 본다.
+     */
+    private fun decideBubble(
+        runtime: Runtime,
+        action: CharacterAction,
+        now: Long
+    ): com.pairplay.app.engine.BubbleSymbol? {
+        if (!settings.bubblesEnabled) return null
+        val candidate = BubbleMapper.forAction(action, runtime.currentScriptId != null)
+            ?: return null
+        if (now - runtime.lastBubbleAt < BubbleMapper.MIN_INTERVAL_MS) return null
+        runtime.lastBubbleAt = now
+        return candidate
     }
 
     /** 말풍선은 동작이 시작할 때 떠오르고 끝나기 직전에 사라진다. */
@@ -590,12 +620,19 @@ class OverlayController(
 
         if (touching && !charactersTouching) {
             onCharactersTouched(a, b, now)
+            // 밀어낼 방향은 닿는 순간 한 번만 정한다.
+            // 매 프레임 다시 정하면 거의 겹쳤을 때 좌우 부호가 뒤집히면서
+            // 캐릭터가 반대편으로 튕겨 다니는 것처럼 보인다.
+            separationDirection = if (delta >= 0f) 1f else -1f
         }
         charactersTouching = touching
         if (!touching) return
 
-        // 완전히 겹친 경우에도 한쪽으로 밀어낼 방향이 필요하다.
-        val direction = if (delta >= 0f) 1f else -1f
+        // 사용자가 일부러 붙여 놓는 중이면 밀어내지 않는다.
+        // 손가락과 밀어내는 힘이 서로 잡아당기면 화면이 심하게 튄다.
+        if (a.interactionHeld || b.interactionHeld) return
+
+        val direction = separationDirection
         val overlap = (gap - distance) * SEPARATION_STEP
 
         if (!a.interactionHeld) {
@@ -686,6 +723,7 @@ class OverlayController(
         runtime.action = action
         runtime.actionStart = now
         runtime.actionDuration = if (durationMs > 0L) durationMs else action.defaultDurationMs
+        runtime.bubble = decideBubble(runtime, action, now)
 
         when (action) {
             CharacterAction.WALK -> setupWalk(runtime, now)
@@ -760,6 +798,19 @@ class OverlayController(
 
     // ---------------------------------------------------------------- 터치
 
+    /**
+     * 손가락이 닿았다. 끌기로 갈지 쓰다듬기로 갈지 아직 모르므로,
+     * 어느 쪽이든 쓸 수 있게 기준 좌표를 지금 잡아 둔다.
+     */
+    override fun onTouchDown(slot: CharacterWindow.Slot, rawX: Float, rawY: Float) {
+        val runtime = runtimeOf(slot) ?: return
+        runtime.heldAnchorX = runtime.window.anchorX
+        runtime.heldAnchorY = runtime.window.anchorY
+        runtime.grabOffsetX = runtime.window.anchorX - rawX
+        runtime.grabOffsetY = runtime.window.anchorY - rawY
+        runtime.dragVelocity = 0f
+    }
+
     override fun onTap(slot: CharacterWindow.Slot) {
         val runtime = runtimeOf(slot) ?: return
         val now = System.currentTimeMillis()
@@ -790,18 +841,16 @@ class OverlayController(
         val runtime = runtimeOf(slot) ?: return
         val now = System.currentTimeMillis()
         runtime.interactionHeld = true
-        runtime.heldAnchorX = runtime.window.anchorX
-        runtime.heldAnchorY = runtime.window.anchorY
-        grab(runtime, rawX, rawY)
+        // 기준 좌표는 손가락이 닿을 때 이미 잡아 두었다.
         // 한쪽을 붙잡으면 둘이 맞춰 가던 장면을 이어갈 수 없다.
         director.abandonCurrentScript()
-        startAction(runtime, CharacterAction.IDLE, now)
+        startAction(runtime, CharacterAction.DANGLE, now)
 
         if (settings.linkedDrag) {
             otherOf(runtime)?.let { other ->
                 other.interactionHeld = true
                 grab(other, rawX, rawY)
-                startAction(other, CharacterAction.IDLE, now)
+                startAction(other, CharacterAction.DANGLE, now)
             }
         }
     }
@@ -882,10 +931,15 @@ class OverlayController(
      * 창을 실제로 옮기는 일은 매 프레임 한 번, tick 의 commit 이 한다.
      */
     private fun moveToFinger(runtime: Runtime, rawX: Float, rawY: Float) {
-        runtime.window.setAnchor(
-            clampX(rawX + runtime.grabOffsetX, runtime),
-            clampY(rawY + runtime.grabOffsetY)
-        )
+        val previousX = runtime.window.anchorX
+        val targetX = clampX(rawX + runtime.grabOffsetX, runtime)
+        runtime.window.setAnchor(targetX, clampY(rawY + runtime.grabOffsetY))
+
+        // 매달려 흔들리는 정도를 정하기 위해 끌리는 속도를 기억한다.
+        // 손 떨림이 그대로 흔들림이 되지 않도록 조금씩 섞는다.
+        val delta = targetX - previousX
+        runtime.dragVelocity = runtime.dragVelocity * (1f - VELOCITY_SMOOTHING) +
+            delta * VELOCITY_SMOOTHING
     }
 
     private fun runtimeOf(slot: CharacterWindow.Slot): Runtime? = when (slot) {
@@ -948,6 +1002,17 @@ class OverlayController(
 
         /** 몸을 돌리는 데 걸리는 시간. */
         private const val FLIP_MS = 220L
+
+        /** 끌리는 속도를 얼마나 부드럽게 섞을지. 1 이면 손 떨림이 그대로 드러난다. */
+        private const val VELOCITY_SMOOTHING = 0.35f
+
+        /** 손가락이 멈추면 흔들림이 잦아드는 속도. */
+        private const val VELOCITY_DECAY = 0.88f
+
+        /** 1px 끌릴 때 몇 도나 기울지. */
+        private const val SWING_PER_PX = 0.35f
+
+        private const val MAX_SWING_DEG = 12f
 
         private const val BUBBLE_FADE_IN_MS = 180f
         private const val BUBBLE_FADE_OUT_MS = 260f

@@ -35,6 +35,15 @@ class CharacterWindow(
     enum class Slot { A, B }
 
     interface Callbacks {
+        /**
+         * 손가락이 처음 닿았다.
+         *
+         * 끌기든 쓰다듬기든 여기서 잡은 좌표를 기준으로 삼는다.
+         * 끌기가 시작될 때만 기준을 잡으면, 끌기 없이 곧장 쓰다듬기로 넘어갔을 때
+         * 기준이 없어 캐릭터가 엉뚱한 곳으로 튄다.
+         */
+        fun onTouchDown(slot: Slot, rawX: Float, rawY: Float)
+
         fun onTap(slot: Slot)
         fun onLongPress(slot: Slot)
         /** 손가락이 처음 닿은 화면 좌표를 함께 넘긴다. */
@@ -257,6 +266,7 @@ class CharacterWindow(
                 firstReversalMs = 0L
                 lastMoveSign = 0
                 maxDistFromDown = 0f
+                callbacks.onTouchDown(slot, event.rawX, event.rawY)
                 v.postDelayed(longPressRunnable, longPressTimeout)
                 return true
             }

@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#F3E3F5</color>
-    <color name="widget_background">#F3E3F5</color>
-    <color name="widget_text">#3A2F4D</color>
+    <color name="widget_background_top">#FBF2FD</color>
+    <color name="widget_background_bottom">#EFDFF4</color>
+    <color name="widget_border">#E0CBE8</color>
+    <color name="widget_chip">#FFFFFF</color>
+    <color name="widget_pill">#FFFFFF</color>
+    <color name="widget_floor">#DCC6E4</color>
+    <color name="widget_text">#4A3B63</color>
     <color name="widget_text_dim">#6B5C7F</color>
 </resources>

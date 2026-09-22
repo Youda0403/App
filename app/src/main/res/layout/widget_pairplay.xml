@@ -10,22 +10,25 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@drawable/widget_background"
-    android:padding="10dp"
+    android:padding="8dp"
     android:gravity="center">
 
+    <!-- 캐릭터 둘이 바닥선 위에 나란히 선다 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="horizontal"
-        android:gravity="bottom|center_horizontal">
+        android:gravity="bottom|center_horizontal"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp">
 
         <LinearLayout
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:orientation="vertical"
-            android:gravity="center_horizontal">
+            android:gravity="bottom|center_horizontal">
 
             <ImageView
                 android:id="@+id/widget_image_a"
@@ -40,18 +43,24 @@
                 android:id="@+id/widget_name_a"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:paddingStart="7dp"
+                android:paddingEnd="7dp"
+                android:paddingTop="1dp"
+                android:paddingBottom="2dp"
+                android:background="@drawable/widget_name_chip"
                 android:maxLines="1"
                 android:ellipsize="end"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textColor="@color/widget_text" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:orientation="vertical"
-            android:gravity="center_horizontal">
+            android:gravity="bottom|center_horizontal">
 
             <ImageView
                 android:id="@+id/widget_image_b"
@@ -66,21 +75,41 @@
                 android:id="@+id/widget_name_b"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:paddingStart="7dp"
+                android:paddingEnd="7dp"
+                android:paddingTop="1dp"
+                android:paddingBottom="2dp"
+                android:background="@drawable/widget_name_chip"
                 android:maxLines="1"
                 android:ellipsize="end"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textColor="@color/widget_text" />
         </LinearLayout>
     </LinearLayout>
 
+    <!-- 바닥선 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="5dp"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        android:background="@color/widget_floor" />
+
     <TextView
         android:id="@+id/widget_status"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="6dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="4dp"
+        android:background="@drawable/widget_status_pill"
         android:gravity="center"
-        android:maxLines="2"
+        android:maxLines="1"
         android:ellipsize="end"
-        android:textSize="11sp"
+        android:textSize="10sp"
         android:textColor="@color/widget_text_dim" />
 </LinearLayout>

@@ -133,6 +133,10 @@ private class EffectView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
 
+    /** 말풍선 몸통과 꼬리를 하나로 합칠 때 쓴다. */
+    private val bubblePath = Path()
+    private val tailPath = Path()
+
     private var effects: List<RenderedEffect> = emptyList()
     private var bubble: BubbleSymbol? = null
     private var bubbleAlpha: Float = 0f
@@ -221,31 +225,33 @@ private class EffectView(context: Context) : View(context) {
         val bottom = cy + bubbleHeight / 2f
         val radius = bubbleHeight * 0.38f
 
-        // 몸통
+        // 몸통과 꼬리를 하나의 도형으로 합친다.
+        // 따로 그리면 꼬리에만 테두리가 빠져 어색하게 보인다.
+        bubblePath.reset()
+        bubblePath.addRoundRect(left, top, right, bottom, radius, radius, Path.Direction.CW)
+
+        val tailWidth = bubbleWidth * 0.2f
+        val tailX = left + bubbleWidth * 0.28f
+        tailPath.reset()
+        tailPath.moveTo(tailX, bottom - bubbleHeight * 0.2f)
+        tailPath.lineTo(tailX + tailWidth, bottom - bubbleHeight * 0.2f)
+        tailPath.lineTo(tailX + tailWidth * 0.15f, bottom + bubbleHeight * 0.34f)
+        tailPath.close()
+        bubblePath.op(tailPath, Path.Op.UNION)
+
         paint.color = BUBBLE_FILL
         paint.alpha = (alpha * 255).roundToInt()
-        canvas.drawRoundRect(left, top, right, bottom, radius, radius, paint)
+        paint.style = Paint.Style.FILL
+        canvas.drawPath(bubblePath, paint)
 
-        // 아래로 내려가는 꼬리. 캐릭터 머리를 가리킨다.
-        val tailWidth = bubbleWidth * 0.18f
-        val tailX = left + bubbleWidth * 0.3f
-        path.reset()
-        path.moveTo(tailX, bottom - 1f)
-        path.lineTo(tailX + tailWidth, bottom - 1f)
-        path.lineTo(tailX + tailWidth * 0.2f, bottom + bubbleHeight * 0.32f)
-        path.close()
-        canvas.drawPath(path, paint)
-
-        // 테두리
         paint.color = BUBBLE_STROKE
-        paint.alpha = (alpha * 160).roundToInt()
+        paint.alpha = (alpha * 170).roundToInt()
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = bubbleHeight * 0.05f
-        canvas.drawRoundRect(left, top, right, bottom, radius, radius, paint)
+        paint.strokeWidth = bubbleHeight * 0.07f
+        canvas.drawPath(bubblePath, paint)
         paint.style = Paint.Style.FILL
 
-        // 기호
-        val size = bubbleHeight * 0.52f
+        val size = bubbleHeight * 0.5f
         paint.color = symbolColor(symbol)
         paint.alpha = (alpha * 255).roundToInt()
         drawSymbol(canvas, symbol, cx, cy, size)
@@ -415,10 +421,11 @@ private const val BOTTOM_EXTENT = 0.6f
 
 private const val SIDE_EXTENT = 0.6f
 
-private const val BUBBLE_WIDTH_RATIO = 0.36f
-private const val BUBBLE_ASPECT = 0.8f
-private const val BUBBLE_CENTER_X = 0.72f
-private const val BUBBLE_TOP_MARGIN = 0.04f
+/** 말풍선 크기. 캐릭터를 가리지 않도록 작게 잡는다. */
+private const val BUBBLE_WIDTH_RATIO = 0.24f
+private const val BUBBLE_ASPECT = 0.78f
+private const val BUBBLE_CENTER_X = 0.74f
+private const val BUBBLE_TOP_MARGIN = 0.05f
 
 private val HEART_COLOR = Color.parseColor("#FF6B8A")
 private val NOTE_COLOR = Color.parseColor("#7B5EA7")
