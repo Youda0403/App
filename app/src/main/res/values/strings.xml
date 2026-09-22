@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PAIRPLAY</string>
+    <string name="channel_overlay_name">오버레이 실행 중</string>
+    <string name="channel_overlay_description">캐릭터가 화면에 떠 있는 동안 표시되는 알림입니다.</string>
+</resources>

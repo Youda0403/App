@@ -1,0 +1,97 @@
+name: Build APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 소스 가져오기
+        uses: actions/checkout@v4
+
+      - name: JDK 17 준비
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle 준비 (캐시 포함)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Android SDK 구성 요소 설치
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: 단위 테스트
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Lint (오류만 확인)
+        run: ./gradlew lintDebug --stacktrace
+        continue-on-error: true
+
+      - name: 릴리스 APK 빌드
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: 서명 확인
+        run: |
+          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          echo "빌드된 파일: $APK"
+          ls -lh "$APK"
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "::warning::KEYSTORE_BASE64 시크릿이 없어 debug 키로 서명되었습니다. 이 APK는 임시 확인용입니다."
+          else
+            echo "릴리스 키로 서명되었습니다."
+          fi
+
+      - name: 테스트 리포트 보관
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ github.run_number }}
+          path: app/build/reports/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: APK 보관 (워크플로 아티팩트)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pairplay-apk-${{ github.run_number }}
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      - name: Releases 에 게시 (휴대폰에서 바로 내려받기)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-${{ github.run_number }}"
+          cp "$APK" "pairplay-${TAG}.apk"
+          gh release create "$TAG" "pairplay-${TAG}.apk" \
+            --title "PAIRPLAY $TAG" \
+            --notes "커밋: ${{ github.sha }}
+브랜치: ${{ github.ref_name }}
+
+휴대폰에서 아래 apk 파일을 눌러 설치하세요.
+처음 설치할 때는 '출처를 알 수 없는 앱 설치 허용'이 필요하고, Play 프로텍트 경고가 뜰 수 있습니다." \
+            --target "${{ github.sha }}"
