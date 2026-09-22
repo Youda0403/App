@@ -23,6 +23,7 @@ import com.pairplay.app.data.OverlaySettingsStore
 import com.pairplay.app.data.PairPlayDatabase
 import com.pairplay.app.music.MusicWatcher
 import com.pairplay.app.ui.MainActivity
+import com.pairplay.app.widget.PairPlayWidgetProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -37,6 +38,14 @@ import kotlinx.coroutines.launch
  * (매니페스트에 사유를 적어 두었다. 개인 설치용이라 심사 대상은 아니다.)
  */
 class OverlayService : LifecycleService() {
+
+    /** 오버레이가 화면을 그리는 데 필요한 모든 데이터. */
+    private data class ObservedState(
+        val pair: com.pairplay.app.data.PairEntity?,
+        val characters: List<CharacterEntity>,
+        val settings: OverlaySettings,
+        val scenes: List<com.pairplay.app.data.SceneEntity>
+    )
 
     private lateinit var settingsStore: OverlaySettingsStore
     private var controller: OverlayController? = null
@@ -61,12 +70,17 @@ class OverlayService : LifecycleService() {
             windowManager = windowManager,
             onHideRequested = { hideIndefinitely() },
             onPositionPersist = { slot, x, y -> persistPosition(slot, x, y) },
-            onSceneChanged = { name -> _currentScene.value = name }
+            onSceneChanged = { name ->
+                _currentScene.value = name
+                // 위젯에도 지금 상황을 알린다. 너무 잦은 갱신은 위젯 쪽에서 걸러 낸다.
+                PairPlayWidgetProvider.refresh(applicationContext)
+            }
         ).also { it.start() }
 
         observeData()
         startMusicWatcher()
         _isRunning.value = true
+        PairPlayWidgetProvider.refresh(applicationContext, force = true)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -79,6 +93,10 @@ class OverlayService : LifecycleService() {
             }
 
             ACTION_TOGGLE_HIDE -> toggleHide()
+            ACTION_RUN_SCENE -> {
+                val sceneId = intent.getLongExtra(EXTRA_SCENE_ID, -1L)
+                if (sceneId >= 0) controller?.runSceneNow(sceneId)
+            }
             ACTION_HIDE_FOR_MINUTES -> {
                 val minutes = intent.getIntExtra(EXTRA_MINUTES, 10)
                 hideForMinutes(minutes)
@@ -97,6 +115,7 @@ class OverlayService : LifecycleService() {
     override fun onDestroy() {
         _isRunning.value = false
         _currentScene.value = null
+        PairPlayWidgetProvider.refresh(applicationContext, force = true)
         musicWatcher?.stop()
         musicWatcher = null
         controller?.release()
@@ -113,10 +132,11 @@ class OverlayService : LifecycleService() {
             combine(
                 database.pairDao().observeActive(),
                 database.characterDao().observeAll(),
-                settingsStore.settings
-            ) { pair, characters, settings ->
-                Triple(pair, characters, settings)
-            }.distinctUntilChanged().collect { (pair, characters, settings) ->
+                settingsStore.settings,
+                database.sceneDao().observeAll()
+            ) { pair, characters, settings, scenes ->
+                ObservedState(pair, characters, settings, scenes)
+            }.distinctUntilChanged().collect { (pair, characters, settings, scenes) ->
                 lastSettings = settings
                 val byId = characters.associateBy { it.id }
 
@@ -132,6 +152,8 @@ class OverlayService : LifecycleService() {
                 }
 
                 controller?.updateSettings(settings)
+                controller?.setUserScenes(scenes)
+                PairPlayWidgetProvider.refresh(applicationContext, force = true)
                 controller?.setCharacters(
                     a = a,
                     b = if (settings.mode == OverlayMode.PAIR) b else null,
@@ -265,7 +287,9 @@ class OverlayService : LifecycleService() {
         const val ACTION_STOP = "com.pairplay.app.STOP"
         const val ACTION_TOGGLE_HIDE = "com.pairplay.app.TOGGLE_HIDE"
         const val ACTION_HIDE_FOR_MINUTES = "com.pairplay.app.HIDE_FOR_MINUTES"
+        const val ACTION_RUN_SCENE = "com.pairplay.app.RUN_SCENE"
         const val EXTRA_MINUTES = "minutes"
+        const val EXTRA_SCENE_ID = "scene_id"
 
         private val _isRunning = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = _isRunning
@@ -277,6 +301,16 @@ class OverlayService : LifecycleService() {
         fun start(context: Context) {
             val intent = Intent(context, OverlayService::class.java)
             context.startForegroundService(intent)
+        }
+
+        /** 장면 편집기에서 만든 장면을 지금 화면에서 보여 준다. */
+        fun runScene(context: Context, sceneId: Long) {
+            if (!isRunning.value) return
+            context.startService(
+                Intent(context, OverlayService::class.java)
+                    .setAction(ACTION_RUN_SCENE)
+                    .putExtra(EXTRA_SCENE_ID, sceneId)
+            )
         }
 
         fun stop(context: Context) {

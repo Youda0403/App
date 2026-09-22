@@ -13,6 +13,7 @@ import com.pairplay.app.data.OverlaySettings
 import com.pairplay.app.data.PairEntity
 import com.pairplay.app.data.RelationshipDirection
 import com.pairplay.app.data.RelationshipType
+import com.pairplay.app.data.SceneEntity
 import com.pairplay.app.data.SceneTrigger
 import com.pairplay.app.engine.CharacterAction
 import com.pairplay.app.engine.EffectEmitter
@@ -24,6 +25,7 @@ import com.pairplay.app.engine.CharacterTraits
 import com.pairplay.app.engine.Performer
 import com.pairplay.app.engine.PoseCalculator
 import com.pairplay.app.engine.RelationshipContext
+import com.pairplay.app.engine.SceneCodec
 import com.pairplay.app.engine.SceneDirector
 import java.io.File
 import kotlin.math.abs
@@ -118,6 +120,8 @@ class OverlayController(
 
     private var lastSceneName: String? = null
 
+    private var lastUserScripts: List<com.pairplay.app.engine.InteractionScript> = emptyList()
+
     /** '일정 시간 숨김'이 끝났는지 주기적으로 확인하기 위한 시각. */
     private var lastVisibilityCheck = 0L
 
@@ -194,6 +198,27 @@ class OverlayController(
             .filter { it.isNotEmpty() }
             .toSet()
     )
+
+    /**
+     * 장면 편집기에서 만든 장면을 반영한다.
+     * 꺼 둔 장면과 마디가 없는 장면은 빼고 넘긴다.
+     */
+    fun setUserScenes(scenes: List<SceneEntity>) {
+        val scripts = scenes
+            .filter { it.enabled }
+            .mapNotNull { SceneCodec.toScript(it) }
+        if (scripts == lastUserScripts) return
+        lastUserScripts = scripts
+        director.setUserScripts(scripts)
+    }
+
+    /** 장면 편집기의 '실행해 보기'. 쿨다운을 무시하고 지금 바로 보여 준다. */
+    fun runSceneNow(sceneId: Long) {
+        val now = System.currentTimeMillis()
+        if (!director.startScriptById(SceneCodec.userScriptId(sceneId), now)) return
+        runtimeA?.takeIf { !it.interactionHeld }?.let { applyDirection(it, now) }
+        runtimeB?.takeIf { !it.interactionHeld }?.let { applyDirection(it, now) }
+    }
 
     fun updateSettings(newSettings: OverlaySettings) {
         val previous = settings

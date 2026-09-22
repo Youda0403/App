@@ -24,6 +24,7 @@ class CharacterRepository(private val context: Context) {
     private val database = PairPlayDatabase.get(context)
     private val characterDao = database.characterDao()
     private val pairDao = database.pairDao()
+    private val sceneDao = database.sceneDao()
 
     fun observeCharacters(): Flow<List<CharacterEntity>> = characterDao.observeAll()
 
@@ -100,6 +101,27 @@ class CharacterRepository(private val context: Context) {
     }
 
     suspend fun getActivePair(): PairEntity? = withContext(Dispatchers.IO) { pairDao.getActive() }
+
+    // ------------------------------------------------------------------ 장면
+
+    fun observeScenes(): Flow<List<SceneEntity>> = sceneDao.observeAll()
+
+    suspend fun addScene(scene: SceneEntity): Long = withContext(Dispatchers.IO) {
+        sceneDao.insert(scene)
+    }
+
+    suspend fun updateScene(scene: SceneEntity) = withContext(Dispatchers.IO) {
+        sceneDao.update(scene)
+    }
+
+    suspend fun deleteScene(scene: SceneEntity) = withContext(Dispatchers.IO) {
+        sceneDao.delete(scene)
+    }
+
+    /** 장면을 복제한다. 비슷한 장면을 여러 개 만들 때 처음부터 짜지 않아도 된다. */
+    suspend fun duplicateScene(scene: SceneEntity): Long = withContext(Dispatchers.IO) {
+        sceneDao.insert(scene.copy(id = 0, name = "${scene.name} 복사본", isBuiltIn = false))
+    }
 
     // ------------------------------------------------------------------ 기본 캐릭터
 

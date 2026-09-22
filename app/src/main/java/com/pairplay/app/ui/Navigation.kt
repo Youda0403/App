@@ -14,6 +14,8 @@ import com.pairplay.app.ui.screens.HomeScreen
 import com.pairplay.app.ui.screens.OnboardingScreen
 import com.pairplay.app.ui.screens.OverlaySettingsScreen
 import com.pairplay.app.ui.screens.RelationshipScreen
+import com.pairplay.app.ui.screens.SceneEditScreen
+import com.pairplay.app.ui.screens.SceneListScreen
 import com.pairplay.app.ui.screens.SizeMatchScreen
 
 object Routes {
@@ -24,8 +26,11 @@ object Routes {
     const val SETTINGS = "settings"
     const val SIZE_MATCH = "size_match"
     const val RELATIONSHIP = "relationship"
+    const val SCENES = "scenes"
+    const val SCENE_EDIT = "scene/{sceneId}"
 
     fun characterEdit(id: Long) = "character/$id"
+    fun sceneEdit(id: Long) = "scene/$id"
 }
 
 @Composable
@@ -57,12 +62,34 @@ fun PairPlayNavHost(viewModel: PairPlayViewModel) {
                 onOpenCharacters = { navController.navigate(Routes.CHARACTERS) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenSizeMatch = { navController.navigate(Routes.SIZE_MATCH) },
-                onOpenRelationship = { navController.navigate(Routes.RELATIONSHIP) }
+                onOpenRelationship = { navController.navigate(Routes.RELATIONSHIP) },
+                onOpenScenes = { navController.navigate(Routes.SCENES) }
             )
         }
 
         composable(Routes.RELATIONSHIP) {
             RelationshipScreen(
+                state = state,
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.SCENES) {
+            SceneListScreen(
+                state = state,
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onEdit = { id -> navController.navigate(Routes.sceneEdit(id)) }
+            )
+        }
+
+        composable(
+            route = Routes.SCENE_EDIT,
+            arguments = listOf(navArgument("sceneId") { type = NavType.LongType })
+        ) { entry ->
+            SceneEditScreen(
+                sceneId = entry.arguments?.getLong("sceneId") ?: -1L,
                 state = state,
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }

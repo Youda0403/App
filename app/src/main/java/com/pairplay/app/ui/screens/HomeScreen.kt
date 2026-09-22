@@ -34,7 +34,8 @@ fun HomeScreen(
     onOpenCharacters: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSizeMatch: () -> Unit,
-    onOpenRelationship: () -> Unit
+    onOpenRelationship: () -> Unit,
+    onOpenScenes: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -123,6 +124,9 @@ fun HomeScreen(
                 Button(onClick = onOpenRelationship, modifier = Modifier.fillMaxWidth()) {
                     Text("관계와 행동 설정")
                 }
+                Button(onClick = onOpenScenes, modifier = Modifier.fillMaxWidth()) {
+                    Text("장면 편집")
+                }
                 Button(onClick = onOpenSizeMatch, modifier = Modifier.fillMaxWidth()) {
                     Text("두 캐릭터 키 맞추기")
                 }
@@ -142,10 +146,15 @@ fun HomeScreen(
                 Text("• 알림창에서도 숨기기와 중지를 할 수 있어요.")
             }
 
-            SectionCard("아직 준비 중") {
+            SectionCard("홈 화면 위젯") {
                 Text(
-                    "장면 편집기와 홈 화면 위젯은 다음 버전에서 추가됩니다. " +
-                        "지금 저장하는 캐릭터와 설정은 그대로 이어져요.",
+                    "홈 화면 빈 곳을 길게 눌러 위젯 목록에서 PAIRPLAY 를 찾아 놓으면, " +
+                        "두 캐릭터와 지금 상황을 홈에서 볼 수 있어요. 탭하면 이 앱이 열립니다.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "위젯은 화면 위 캐릭터처럼 계속 움직이지 않아요. 안드로이드가 위젯을 " +
+                        "자주 갱신하지 못하게 막고 있어서, 배터리를 위해 가끔만 새로 그립니다.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }

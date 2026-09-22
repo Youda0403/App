@@ -419,6 +419,17 @@ object ScriptLibrary {
             .map { it.copy(weight = adjustedWeight(it, context)) }
     }
 
+    /**
+     * 사용자가 만든 장면도 같은 잣대로 거른다.
+     * 금지한 동작이 들어갔거나, 혼자 있는데 상대가 필요한 장면은 쓰지 않는다.
+     */
+    fun filterUsable(
+        scripts: List<InteractionScript>,
+        context: RelationshipContext
+    ): List<InteractionScript> = scripts
+        .filter { !it.requiresPartner || context.hasPartner }
+        .filter { isAllowed(it, context) }
+
     /** 사용자가 금지한 동작이 들어간 장면은 후보에서 뺀다. 사용자 설정이 우선이다. */
     private fun isAllowed(script: InteractionScript, context: RelationshipContext): Boolean {
         val aOk = script.actionsFor(Performer.A).all { context.a.allows(it) }

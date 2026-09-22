@@ -13,6 +13,9 @@ import com.pairplay.app.data.OverlaySettingsStore
 import com.pairplay.app.data.PairEntity
 import com.pairplay.app.data.RelationshipDirection
 import com.pairplay.app.data.RelationshipType
+import com.pairplay.app.data.SceneEntity
+import com.pairplay.app.data.SceneTrigger
+import com.pairplay.app.engine.SceneCodec
 import com.pairplay.app.engine.CharacterAction
 import com.pairplay.app.image.ImageImporter
 import com.pairplay.app.music.MusicWatcher
@@ -33,7 +36,9 @@ data class PairPlayUiState(
     val loading: Boolean = true,
     val message: String? = null,
     /** 지금 도는 상황극 이름. 상황극이 실제로 돌고 있는지 확인할 수 있다. */
-    val currentScene: String? = null
+    val currentScene: String? = null,
+    /** 사용자가 장면 편집기로 만든 장면들. */
+    val scenes: List<SceneEntity> = emptyList()
 ) {
     val characterA: CharacterEntity?
         get() = activePair?.let { pair -> characters.firstOrNull { it.id == pair.characterAId } }
@@ -75,15 +80,23 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
             ) { permissions, text, scene ->
                 Ambient(permissions.first, permissions.second, text, scene)
             }
-            combine(
+            // combine 은 한 번에 다섯 개까지만 받는다.
+            // 저장된 내용끼리 먼저 묶어 자리를 만든다.
+            val stored = combine(
                 repository.observeCharacters(),
+                repository.observeScenes()
+            ) { characters, scenes -> characters to scenes }
+
+            combine(
+                stored,
                 repository.observeActivePair(),
                 settingsStore.settings,
                 OverlayService.isRunning,
                 ambient
-            ) { characters, pair, settings, running, outside ->
+            ) { (characters, scenes), pair, settings, running, outside ->
                 PairPlayUiState(
                     characters = characters,
+                    scenes = scenes,
                     activePair = pair,
                     settings = settings,
                     overlayRunning = running,
@@ -204,6 +217,57 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
                 character.copy(blockedActions = blocked.joinToString(",") { it.id })
             )
         }
+    }
+
+    // ------------------------------------------------------------------ 장면 편집기
+
+    /** 기본 뼈대를 가진 새 장면을 만든다. 빈 화면보다 고치기 쉽다. */
+    fun createScene(onCreated: (Long) -> Unit = {}) {
+        viewModelScope.launch {
+            val id = repository.addScene(
+                SceneEntity(
+                    name = "새 장면",
+                    trigger = SceneTrigger.IDLE_TIMER.name,
+                    orderedActions = SceneCodec.encodeSteps(SceneCodec.defaultSteps()),
+                    cooldownMs = 30_000L
+                )
+            )
+            message.value = "새 장면을 만들었어요."
+            onCreated(id)
+        }
+    }
+
+    fun updateScene(scene: SceneEntity) {
+        viewModelScope.launch { repository.updateScene(scene) }
+    }
+
+    fun deleteScene(scene: SceneEntity) {
+        viewModelScope.launch {
+            repository.deleteScene(scene)
+            message.value = "${scene.name} 을(를) 지웠어요."
+        }
+    }
+
+    fun duplicateScene(scene: SceneEntity) {
+        viewModelScope.launch {
+            repository.duplicateScene(scene)
+            message.value = "장면을 복제했어요."
+        }
+    }
+
+    /** 오버레이에서 이 장면을 지금 바로 보여 준다. */
+    fun runSceneNow(scene: SceneEntity) {
+        val context = getApplication<Application>()
+        if (!_uiState.value.overlayRunning) {
+            message.value = "먼저 오버레이를 시작해 주세요."
+            return
+        }
+        if (SceneCodec.toScript(scene) == null) {
+            message.value = "마디가 없어서 보여 줄 수 없어요. 행동을 하나 이상 넣어 주세요."
+            return
+        }
+        OverlayService.runScene(context, scene.id)
+        message.value = "화면에서 실행했어요."
     }
 
     fun setPair(aId: Long, bId: Long?) {

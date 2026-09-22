@@ -40,6 +40,14 @@ class SceneDirector(
     private var speedScale: Float = 1f
 
     private var context: RelationshipContext? = null
+
+    /** 관계에 따라 자동으로 만들어지는 기본 장면. */
+    private var builtInScripts: List<InteractionScript> = emptyList()
+
+    /** 사용자가 장면 편집기로 만든 장면. */
+    private var userScripts: List<InteractionScript> = emptyList()
+
+    /** 실제로 고르는 후보. 위 둘을 합치고 금지 행동으로 거른 결과다. */
     private var scripts: List<InteractionScript> = emptyList()
 
     /** 장면 id -> 이 시각 전에는 다시 쓰지 않는다. */
@@ -84,8 +92,27 @@ class SceneDirector(
 
     fun configure(newContext: RelationshipContext) {
         context = newContext
-        scripts = ScriptLibrary.buildFor(newContext)
+        builtInScripts = ScriptLibrary.buildFor(newContext)
+        rebuildScripts()
         abandonScript()
+    }
+
+    /**
+     * 사용자가 만든 장면을 넣는다.
+     * 기본 장면보다 우선순위가 높게 만들어져 있어 먼저 잡힌다.
+     */
+    fun setUserScripts(scripts: List<InteractionScript>) {
+        userScripts = scripts
+        rebuildScripts()
+    }
+
+    private fun rebuildScripts() {
+        val ctx = context
+        scripts = if (ctx == null) {
+            builtInScripts
+        } else {
+            builtInScripts + ScriptLibrary.filterUsable(userScripts, ctx)
+        }
     }
 
     /**
@@ -102,6 +129,17 @@ class SceneDirector(
         cooldownUntil.clear()
         stepEndsA = 0L
         stepEndsB = 0L
+    }
+
+    /**
+     * 특정 장면을 지금 바로 시작한다. 장면 편집기의 '실행해 보기' 에서 쓴다.
+     * 쿨다운과 우선순위를 무시한다. 사용자가 직접 요청한 것이기 때문이다.
+     */
+    fun startScriptById(scriptId: String, now: Long): Boolean {
+        val script = scripts.firstOrNull { it.id == scriptId } ?: return false
+        if (script.steps.isEmpty()) return false
+        startScript(script, now)
+        return true
     }
 
     /**
