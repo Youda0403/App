@@ -34,12 +34,48 @@ class ReactionMapperTest {
     }
 
     @Test
-    fun `흔들면 성격에 따라 다르게 반응한다`() {
-        val a = ReactionMapper.forEvent(DeviceEvent.SHAKE, playful)
-        val b = ReactionMapper.forEvent(DeviceEvent.SHAKE, timid)
-        assertEquals(CharacterAction.JUMP, a.action)
-        assertEquals(CharacterAction.SHY, b.action)
-        assertNotEquals(a.action, b.action)
+    fun `흔들면 어지러워한다`() {
+        // 사용자 요청: 흔들면 어지러워하는 게 자연스럽다.
+        val reaction = ReactionMapper.forEvent(DeviceEvent.SHAKE, plain)
+        assertEquals(CharacterAction.DIZZY, reaction.action)
+        assertEquals(EffectKind.SWIRL, reaction.effect)
+
+        // 아주 팔팔한 아이는 금방 털고 일어난다.
+        val lively = ReactionMapper.forEvent(DeviceEvent.SHAKE, CharacterTraits(energy = 95))
+        assertNotEquals(CharacterAction.DIZZY, lively.action)
+    }
+
+    @Test
+    fun `뺏기면 아쉬워한다`() {
+        // 사용자 요청: 분리될 때 어리둥절해하는 것보다 아쉬워하는 쪽이 낫다.
+        for (event in listOf(DeviceEvent.CHARGER_OFF, DeviceEvent.HEADSET_OFF)) {
+            val reaction = ReactionMapper.forEvent(event, plain)
+            assertEquals(
+                "${event.id} 는 시무룩해야 합니다",
+                CharacterAction.SULK,
+                reaction.action
+            )
+            assertNotEquals(EffectKind.QUESTION, reaction.effect)
+        }
+    }
+
+    /**
+     * 만화에서 ✨ 는 '신난다' 가 아니라 '번뜩였다' 는 뜻이다.
+     * 기쁨·신남은 꽃(FLOWER)이 맡는다.
+     */
+    @Test
+    fun `반짝임은 번뜩이는 순간에만 쓴다`() {
+        val sparkling = DeviceEvent.entries.filter {
+            ReactionMapper.forEvent(it, playful).effect == EffectKind.SPARKLE
+        }
+        // 장난칠 생각이 떠오른 순간(톡톡 두 번 + 장난기) 하나뿐이어야 한다.
+        assertEquals(listOf(DeviceEvent.DOUBLE_TAP), sparkling)
+
+        // 신나는 일에는 꽃이 뜬다.
+        assertEquals(
+            EffectKind.FLOWER,
+            ReactionMapper.forEvent(DeviceEvent.BATTERY_FULL, plain).effect
+        )
     }
 
     @Test

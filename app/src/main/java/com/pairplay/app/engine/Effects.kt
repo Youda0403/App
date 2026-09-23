@@ -16,8 +16,19 @@ enum class EffectKind {
     /** 음악 */
     NOTE,
 
-    /** 신남, 장난 */
+    /**
+     * 번뜩! 예리하거나 무언가 떠오른 순간.
+     *
+     * 만화에서 ✨ 는 '신난다' 가 아니라 '번뜩였다' 는 뜻으로 쓴다.
+     * 기쁘거나 신나는 건 [FLOWER] 가 맡는다.
+     */
     SPARKLE,
+
+    /** 기쁨, 설렘, 신남. 만화에서 꽃이 피듯. */
+    FLOWER,
+
+    /** 어지러움. 흔들렸을 때 머리 위에서 빙글빙글 돈다. */
+    SWIRL,
 
     /** 놀람 */
     EXCLAIM,
@@ -211,9 +222,9 @@ class EffectEmitter(
         private const val CLING_DURATION_MS = 1_500L
         private const val STAGGER_MS = 110L
 
-        /** 땀과 핏대는 캐릭터에 붙는다. 나머지는 떠오른다. */
+        /** 땀·핏대·어지러움은 캐릭터에 붙는다. 나머지는 떠오른다. */
         fun defaultStyleFor(kind: EffectKind): EffectStyle = when (kind) {
-            EffectKind.SWEAT, EffectKind.ANGER -> EffectStyle.CLING
+            EffectKind.SWEAT, EffectKind.ANGER, EffectKind.SWIRL -> EffectStyle.CLING
             else -> EffectStyle.RISE
         }
 

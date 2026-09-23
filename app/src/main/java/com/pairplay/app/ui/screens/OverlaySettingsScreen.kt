@@ -137,14 +137,15 @@ fun OverlaySettingsScreen(
 
             SectionCard("내 행동에 반응") {
                 LabeledSwitch(
-                    label = "흔들기·충전기·이어폰에 반응",
-                    description = "휴대폰을 흔들면 놀라고, 충전기를 꽂으면 좋아하고, " +
-                        "이어폰을 꽂으면 리듬을 타요. 잠금을 풀면 반겨 줍니다. " +
-                        "추가 권한은 필요 없어요.",
+                    label = "휴대폰에서 벌어지는 일에 반응",
+                    description = "흔들면 어지러워하고, 충전기를 꽂으면 좋아하고, " +
+                        "이어폰을 꽂으면 리듬을 타요. 소리 크기, 배터리, 화면 돌리기, " +
+                        "잠금 해제에도 반응합니다. 추가 권한은 필요 없어요.",
                     checked = settings.deviceReactionsEnabled
                 ) { viewModel.setDeviceReactions(it) }
                 Text(
-                    "캐릭터를 톡톡 두 번 치면 한 번 칠 때보다 크게 반응해요. " +
+                    "캐릭터를 톡톡 두 번 치면 한 번 칠 때보다 크게 반응하고, " +
+                        "세게 뿌리면 날아갔다가 떨어져요. " +
                         "반응은 성격 수치에 따라 달라집니다.",
                     style = MaterialTheme.typography.bodySmall
                 )

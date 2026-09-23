@@ -57,7 +57,19 @@ enum class CharacterAction(
     REST("rest", 4_500L, loops = true),
 
     /** 상대를 견제하듯 노려본다. 라이벌 관계에 쓴다. */
-    GLARE("glare", 1_600L);
+    GLARE("glare", 1_600L),
+
+    /** 흔들려서 어지럽다. 휘청휘청 좌우로 흔들린다. */
+    DIZZY("dizzy", 1_800L),
+
+    /** 시무룩. 고개를 숙이고 축 처진다. */
+    SULK("sulk", 1_600L),
+
+    /**
+     * 던져져 날아가거나 떨어지는 중.
+     * 위치는 컨트롤러의 물리 계산이 정하므로 [moves] 로 두지 않는다.
+     */
+    FALL("fall", 900L, loops = true);
 
     companion object {
         fun fromId(id: String?): CharacterAction =
@@ -133,6 +145,11 @@ object PoseCalculator {
             CharacterAction.SHY -> shy(t, heightPx)
             CharacterAction.REST -> rest(t, seed)
             CharacterAction.GLARE -> glare(t)
+            CharacterAction.DIZZY -> dizzy(t)
+            CharacterAction.SULK -> sulk(t, heightPx)
+            // 떨어지는 모습은 물리 계산에 따라 달라지므로 진행도로 만들지 않는다.
+            // 컨트롤러가 fallPose 로 따로 계산한다.
+            CharacterAction.FALL -> Pose.NEUTRAL
         }
     }
 
@@ -161,6 +178,40 @@ object PoseCalculator {
             scaleY = 1f + stretch * 0.03f,
             rotationDeg = swing,
             offsetY = heightPx * 0.01f * stretch
+        )
+    }
+
+    /**
+     * 떨어지거나 날아가는 자세.
+     * [spinDeg] 는 지금 속도에서 나온 기울기다. 진행도가 아니라 지금 상태로 정해진다.
+     */
+    fun fallPose(spinDeg: Float): Pose {
+        val spin = spinDeg.coerceIn(-PoseBounds.MAX_ROTATION_DEG, PoseBounds.MAX_ROTATION_DEG)
+        val stretch = abs(spin) / PoseBounds.MAX_ROTATION_DEG
+        return Pose(
+            scaleX = 1f - stretch * 0.03f,
+            scaleY = 1f + stretch * 0.04f,
+            rotationDeg = spin
+        )
+    }
+
+    /** 어지러워 휘청거린다. 좌우로 크게 흔들린다. */
+    private fun dizzy(t: Float): Pose {
+        val wobble = sin(t * 5f * Math.PI.toFloat())
+        return Pose(
+            scaleY = 1f - abs(wobble) * 0.02f,
+            rotationDeg = wobble * 9f
+        )
+    }
+
+    /** 시무룩. 고개를 숙이고 몸이 축 처진다. */
+    private fun sulk(t: Float, heightPx: Float): Pose {
+        val droop = sin(t * Math.PI.toFloat())
+        return Pose(
+            scaleX = 1f + droop * 0.015f,
+            scaleY = 1f - droop * 0.04f,
+            rotationDeg = droop * 4f,
+            offsetY = droop * heightPx * 0.025f
         )
     }
 

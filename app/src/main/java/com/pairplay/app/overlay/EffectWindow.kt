@@ -243,6 +243,8 @@ private class EffectView(context: Context) : View(context) {
         EffectKind.HEART -> HEART_COLOR
         EffectKind.NOTE -> NOTE_COLOR
         EffectKind.SPARKLE -> SPARKLE_COLOR
+        EffectKind.FLOWER -> FLOWER_COLOR
+        EffectKind.SWIRL -> SWIRL_COLOR
         EffectKind.EXCLAIM -> EXCLAIM_COLOR
         EffectKind.QUESTION -> INK_COLOR
         EffectKind.SLEEP -> SLEEP_COLOR
@@ -255,6 +257,8 @@ private class EffectView(context: Context) : View(context) {
             EffectKind.HEART -> drawHeart(canvas, cx, cy, size)
             EffectKind.NOTE -> drawNote(canvas, cx, cy, size)
             EffectKind.SPARKLE -> drawSparkle(canvas, cx, cy, size)
+            EffectKind.FLOWER -> drawFlower(canvas, cx, cy, size)
+            EffectKind.SWIRL -> drawSwirl(canvas, cx, cy, size)
             EffectKind.EXCLAIM -> drawExclaim(canvas, cx, cy, size)
             EffectKind.QUESTION -> drawQuestion(canvas, cx, cy, size)
             EffectKind.SLEEP -> drawSleep(canvas, cx, cy, size)
@@ -314,6 +318,49 @@ private class EffectView(context: Context) : View(context) {
         path.quadTo(cx - waist, cy - waist, cx, cy - arm)
         path.close()
         canvas.drawPath(path, paint)
+    }
+
+    /** 기쁨·설렘: 꽃잎 다섯 장. 신나는 일에는 ✨ 대신 이걸 띄운다. */
+    private fun drawFlower(canvas: Canvas, cx: Float, cy: Float, size: Float) {
+        val petal = size * 0.26f
+        val reach = size * 0.27f
+        for (turn in 0 until 5) {
+            val angle = Math.toRadians((turn * 72).toDouble())
+            val px = cx + (reach * kotlin.math.cos(angle)).toFloat()
+            val py = cy + (reach * kotlin.math.sin(angle)).toFloat()
+            canvas.drawCircle(px, py, petal, paint)
+        }
+        // 가운데는 살짝 비워 꽃술처럼 보이게 한다.
+        val saved = paint.color
+        paint.color = FLOWER_CORE_COLOR
+        canvas.drawCircle(cx, cy, size * 0.14f, paint)
+        paint.color = saved
+    }
+
+    /** 어지러움: 빙글빙글 도는 소용돌이. */
+    private fun drawSwirl(canvas: Canvas, cx: Float, cy: Float, size: Float) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = size * 0.13f
+        paint.strokeCap = Paint.Cap.ROUND
+
+        path.reset()
+        path.moveTo(cx, cy)
+        // 안쪽에서 바깥으로 두 바퀴 감아 나간다.
+        var radius = size * 0.07f
+        var angle = 0.0
+        val steps = 28
+        repeat(steps) {
+            angle += Math.PI * 2 / 9
+            radius += size * 0.45f / steps
+            path.lineTo(
+                cx + (radius * kotlin.math.cos(angle)).toFloat(),
+                cy + (radius * kotlin.math.sin(angle)).toFloat()
+            )
+        }
+        canvas.drawPath(path, paint)
+
+        paint.style = Paint.Style.FILL
+        paint.strokeCap = Paint.Cap.BUTT
     }
 
     private fun drawExclaim(canvas: Canvas, cx: Float, cy: Float, size: Float) {
@@ -449,6 +496,9 @@ private const val SIDE_EXTENT = 0.6f
 private val HEART_COLOR = Color.parseColor("#FF6B8A")
 private val NOTE_COLOR = Color.parseColor("#7B5EA7")
 private val SPARKLE_COLOR = Color.parseColor("#F5A623")
+private val FLOWER_COLOR = Color.parseColor("#FF9EC4")
+private val FLOWER_CORE_COLOR = Color.parseColor("#FFF3B0")
+private val SWIRL_COLOR = Color.parseColor("#8E7CC3")
 private val EXCLAIM_COLOR = Color.parseColor("#FF8A3D")
 private val INK_COLOR = Color.parseColor("#4A3B63")
 private val SLEEP_COLOR = Color.parseColor("#6E86C4")

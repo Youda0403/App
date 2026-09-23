@@ -29,6 +29,9 @@ internal fun actionLabel(action: CharacterAction): String = when (action) {
     CharacterAction.SHY -> "수줍어하기"
     CharacterAction.REST -> "나란히 쉬기"
     CharacterAction.GLARE -> "노려보기"
+    CharacterAction.DIZZY -> "어지러워하기"
+    CharacterAction.SULK -> "시무룩"
+    CharacterAction.FALL -> "떨어지기"
 }
 
 internal fun triggerLabel(trigger: SceneTrigger): String = when (trigger) {

@@ -50,9 +50,13 @@ object ExpressionMapper {
         CharacterAction.TEASE,
         CharacterAction.APPROACH -> Expression.HAPPY
 
-        CharacterAction.SHY -> Expression.SAD
+        CharacterAction.SHY,
+        CharacterAction.SULK -> Expression.SAD
 
         CharacterAction.GLARE -> Expression.ANGRY
+
+        CharacterAction.DIZZY,
+        CharacterAction.FALL -> Expression.SURPRISED
 
         CharacterAction.DOZE -> Expression.SLEEPY
 

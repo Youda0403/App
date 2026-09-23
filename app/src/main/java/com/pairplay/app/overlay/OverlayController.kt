@@ -33,6 +33,7 @@ import com.pairplay.app.engine.SceneCodec
 import com.pairplay.app.engine.SceneDirector
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.random.Random
 
 /**
@@ -89,8 +90,17 @@ class OverlayController(
         var grabOffsetX: Float = 0f
         var grabOffsetY: Float = 0f
 
-        /** 끌리는 속도(px/프레임). 매달려 흔들리는 정도를 정한다. */
+        /** 끌리는 속도(px/프레임). 매달려 흔들리는 정도와 던지는 세기를 정한다. */
         var dragVelocity: Float = 0f
+        var dragVelocityY: Float = 0f
+
+        /**
+         * 날아가는 중의 속도(px/프레임). 0 이 아니면 던져졌거나 떨어지는 중이다.
+         * 위치를 스스로 정하므로 걷기·밀어내기와 겹치지 않게 다뤄야 한다.
+         */
+        var flyVX: Float = 0f
+        var flyVY: Float = 0f
+        var flying: Boolean = false
 
         /**
          * 매달렸을 때의 흔들림. 각도와 각속도를 함께 들고 있어야 손을 멈춰도
@@ -627,6 +637,15 @@ class OverlayController(
     }
 
     private fun updateRuntime(runtime: Runtime, now: Long) {
+        // 던져져 날아가는 중에는 물리 계산이 위치를 정한다.
+        // 걷기나 밀어내기가 끼어들면 서로 잡아당겨 화면이 튄다.
+        if (runtime.flying) {
+            updateFlight(runtime, now)
+            runtime.window.setFacingFactor(facingFactor(runtime, now))
+            runtime.window.setLift(0f)
+            return
+        }
+
         val elapsed = now - runtime.actionStart
         val duration = runtime.actionDuration.coerceAtLeast(1L)
 
@@ -832,7 +851,8 @@ class OverlayController(
         // 닿았다/떨어졌다를 다른 기준으로 본다. 기준이 하나뿐이면 경계에서
         // 붙었다 떨어졌다가 반복되어 부딪히는 연출이 계속 터지고 화면이 튄다.
         val touching = if (charactersTouching) distance < gap * TOUCH_RELEASE else distance < gap
-        val held = a.interactionHeld || b.interactionHeld
+        // 손에 잡혀 있거나 날아가는 중에는 서로 밀지 않는다.
+        val held = a.interactionHeld || b.interactionHeld || a.flying || b.flying
 
         if (touching && !charactersTouching) {
             // 밀어낼 방향은 **닿기 시작한 지금 한 번만** 정하고 떨어질 때까지 유지한다.
@@ -895,7 +915,7 @@ class OverlayController(
 
     /** 부딪혀 튕겨 나가는 중이면 그만큼 더 밀린다. 점점 느려지다 멈춘다. */
     private fun applyKnockback(runtime: Runtime) {
-        if (runtime.interactionHeld || abs(runtime.knockVX) < KNOCK_MIN_PX) {
+        if (runtime.interactionHeld || runtime.flying || abs(runtime.knockVX) < KNOCK_MIN_PX) {
             runtime.knockVX = 0f
             return
         }
@@ -1108,11 +1128,21 @@ class OverlayController(
      */
     override fun onTouchDown(slot: CharacterWindow.Slot, rawX: Float, rawY: Float) {
         val runtime = runtimeOf(slot) ?: return
+        // 날아가는 중에 붙잡으면 그 자리에서 멈춘다.
+        runtime.flying = false
+        runtime.flyVX = 0f
+        runtime.flyVY = 0f
+        runtime.dragVelocityY = 0f
         runtime.heldAnchorX = runtime.window.anchorX
         runtime.heldAnchorY = runtime.window.anchorY
         runtime.grabOffsetX = runtime.window.anchorX - rawX
         runtime.grabOffsetY = runtime.window.anchorY - rawY
         runtime.dragVelocity = 0f
+    }
+
+    /** 화면을 돌리면 휘청한다. 화면 크기가 달라진 것으로 알아챈다. */
+    private fun onScreenRotated() {
+        onDeviceEvent(DeviceEvent.ROTATED)
     }
 
     override fun onTap(slot: CharacterWindow.Slot) {
@@ -1192,8 +1222,9 @@ class OverlayController(
     }
 
     override fun onDragEnd(slot: CharacterWindow.Slot) {
+        val thrown = tryThrow(runtimeOf(slot))
         releaseHold()
-        persistPositions()
+        if (!thrown) persistPositions()
         // 내려놓은 자리를 기준으로 둘 다 다시 서로를 본다.
         val now = System.currentTimeMillis()
         forEachRuntime { if (it.visible) faceOther(it, now) }
@@ -1222,6 +1253,82 @@ class OverlayController(
 
     override fun onPetEnd(slot: CharacterWindow.Slot) {
         releaseHold()
+    }
+
+    /**
+     * 손을 뗄 때 세게 뿌렸으면 던져진 것으로 본다.
+     *
+     * 살짝 내려놓는 것과 구별해야 한다. 그냥 놓을 때마다 바닥으로 떨어지면
+     * 화면 위쪽에 캐릭터를 둘 수 없어 불편하다. 그래서 **빠르게 뿌렸을 때만**
+     * 날아가고, 천천히 내려놓으면 그 자리에 그대로 선다.
+     */
+    private fun tryThrow(runtime: Runtime?): Boolean {
+        if (runtime == null || !runtime.visible) return false
+        val speed = hypot(runtime.dragVelocity, runtime.dragVelocityY)
+        if (speed < THROW_MIN_SPEED_PX) return false
+
+        runtime.flying = true
+        runtime.flyVX = runtime.dragVelocity * THROW_BOOST
+        runtime.flyVY = runtime.dragVelocityY * THROW_BOOST
+        runtime.interactionHeld = false
+        startAction(runtime, CharacterAction.FALL, System.currentTimeMillis())
+        return true
+    }
+
+    /**
+     * 날아가는 중의 한 프레임. 중력을 받아 아래로 휘고, 바닥과 벽에서 튄다.
+     * 다 튀고 멈추면 착지 연출을 하고 평소대로 돌아간다.
+     */
+    private fun updateFlight(runtime: Runtime, now: Long) {
+        runtime.flyVY += GRAVITY_PX
+        runtime.flyVX *= AIR_DRAG
+
+        val floor = screenHeight * FLOOR_RATIO
+        var x = runtime.window.anchorX + runtime.flyVX
+        var y = runtime.window.anchorY + runtime.flyVY
+
+        // 화면 좌우 벽에서 튕긴다.
+        val clampedX = clampX(x, runtime)
+        if (clampedX != x) {
+            x = clampedX
+            runtime.flyVX = -runtime.flyVX * WALL_BOUNCE
+            spawnEffect(runtime, EffectKind.EXCLAIM, 1, now)
+        }
+
+        var landed = false
+        if (y >= floor) {
+            y = floor
+            if (abs(runtime.flyVY) > LAND_STOP_PX) {
+                // 아직 튈 힘이 남았다.
+                runtime.flyVY = -abs(runtime.flyVY) * FLOOR_BOUNCE
+                runtime.flyVX *= FLOOR_FRICTION
+            } else {
+                landed = true
+            }
+        }
+
+        runtime.window.setAnchor(x, clampY(y))
+        // 걷기 목적지도 지금 자리로 맞춰 둔다. 두면 착지 후 원래 가던 곳으로 끌려간다.
+        runtime.walkFromX = x
+        runtime.walkToX = x
+        runtime.walkFromY = runtime.window.anchorY
+        runtime.walkToY = runtime.window.anchorY
+
+        if (!landed) {
+            val spin = (runtime.flyVX * SPIN_PER_PX)
+                .coerceIn(-MAX_SWING_DEG, MAX_SWING_DEG)
+            val pose = PoseCalculator.fallPose(spin)
+            runtime.lastPose = pose
+            runtime.window.setPose(pose)
+            return
+        }
+
+        runtime.flying = false
+        runtime.flyVX = 0f
+        runtime.flyVY = 0f
+        spawnEffect(runtime, EffectKind.EXCLAIM, 1, now)
+        startAction(runtime, CharacterAction.BUMP, now)
+        persistPositions()
     }
 
     private fun releaseHold() {
@@ -1262,6 +1369,7 @@ class OverlayController(
      */
     private fun moveToFinger(runtime: Runtime, rawX: Float, rawY: Float) {
         val previousX = runtime.window.anchorX
+        val previousY = runtime.window.anchorY
         val targetX = clampX(rawX + runtime.grabOffsetX, runtime)
         runtime.window.setAnchor(targetX, clampY(rawY + runtime.grabOffsetY))
 
@@ -1270,6 +1378,11 @@ class OverlayController(
         val delta = targetX - previousX
         runtime.dragVelocity = runtime.dragVelocity * (1f - VELOCITY_SMOOTHING) +
             delta * VELOCITY_SMOOTHING
+
+        // 던질 때 쓸 세로 속도도 같은 방식으로 기억한다.
+        val deltaY = runtime.window.anchorY - previousY
+        runtime.dragVelocityY = runtime.dragVelocityY * (1f - VELOCITY_SMOOTHING) +
+            deltaY * VELOCITY_SMOOTHING
     }
 
     private fun runtimeOf(slot: CharacterWindow.Slot): Runtime? = when (slot) {
@@ -1280,6 +1393,7 @@ class OverlayController(
     // ---------------------------------------------------------------- 화면 경계
 
     private fun refreshScreenSize() {
+        val beforeWidth = screenWidth
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val bounds = windowManager.currentWindowMetrics.bounds
             screenWidth = bounds.width().toFloat()
@@ -1288,6 +1402,10 @@ class OverlayController(
             val metrics = context.resources.displayMetrics
             screenWidth = metrics.widthPixels.toFloat()
             screenHeight = metrics.heightPixels.toFloat()
+        }
+        // 가로폭이 달라졌으면 화면을 돌린 것이다. 처음 재는 때는 빼고 알린다.
+        if (beforeWidth > 0f && beforeWidth != screenWidth) {
+            onScreenRotated()
         }
     }
 
@@ -1394,6 +1512,34 @@ class OverlayController(
 
         /** 이만큼 못 갔으면 화면 끝에 막힌 것으로 본다. */
         private const val WALL_TOLERANCE_PX = 2f
+
+        /**
+         * 손을 뗄 때 이보다 빠르게 뿌려야 던진 것으로 본다(px/프레임).
+         * 그냥 내려놓을 때마다 바닥으로 떨어지면 화면 위쪽에 둘 수가 없다.
+         */
+        private const val THROW_MIN_SPEED_PX = 12f
+
+        /** 던질 때 손가락 속도에 곱하는 값. 1 이면 손 속도 그대로다. */
+        private const val THROW_BOOST = 1.6f
+
+        /** 한 프레임마다 아래로 더해지는 속도(px/프레임^2). */
+        private const val GRAVITY_PX = 0.9f
+
+        /** 공기 저항. 1 이면 가로 속도가 줄지 않는다. */
+        private const val AIR_DRAG = 0.99f
+
+        /** 벽과 바닥에서 튕길 때 남는 속도의 비율. */
+        private const val WALL_BOUNCE = 0.5f
+        private const val FLOOR_BOUNCE = 0.45f
+
+        /** 바닥에 닿을 때 가로로 미끄러지는 정도. */
+        private const val FLOOR_FRICTION = 0.6f
+
+        /** 이보다 느리게 바닥에 닿으면 멈춘 것으로 본다. */
+        private const val LAND_STOP_PX = 4f
+
+        /** 날아갈 때 1px 속도마다 몇 도나 도는지. */
+        private const val SPIN_PER_PX = 0.5f
 
         private const val EFFECT_WIDTH_FACTOR = 1.9f
 

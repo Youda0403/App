@@ -17,8 +17,12 @@ object MoodMapper {
         CharacterAction.PET -> EffectKind.HEART
         CharacterAction.SHY -> EffectKind.SWEAT
         CharacterAction.GLARE -> EffectKind.ANGER
+        // ✨ 는 '신난다' 가 아니라 '번뜩였다' 는 뜻이다.
+        // 장난칠 생각이 떠오른 순간이 여기에 딱 맞는다.
         CharacterAction.TEASE -> EffectKind.SPARKLE
         CharacterAction.DOZE -> EffectKind.SLEEP
+        CharacterAction.DIZZY -> EffectKind.SWIRL
+        CharacterAction.SULK -> EffectKind.SWEAT
 
         // 장면 안에서 벌어질 때만 알린다.
         CharacterAction.REST -> if (inScene) EffectKind.HEART else null
@@ -37,6 +41,8 @@ object MoodMapper {
         CharacterAction.BREATHE,
         CharacterAction.WALK,
         CharacterAction.DANGLE,
+        // 떨어지는 중에는 표시가 따라오지 못한다. 착지할 때 컨트롤러가 띄운다.
+        CharacterAction.FALL,
         CharacterAction.LEAN -> null
     }
 
