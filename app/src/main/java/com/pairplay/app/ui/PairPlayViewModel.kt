@@ -145,6 +145,19 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.updateCharacter(character) }
     }
 
+    /** 기본 그림만 다른 이미지로 갈아 끼운다. 다른 설정은 그대로 둔다. */
+    fun replaceBaseImage(characterId: Long, uri: Uri) {
+        viewModelScope.launch {
+            when (val result = repository.replaceBaseImage(characterId, uri)) {
+                is CharacterRepository.AddResult.Added ->
+                    message.value = "기본 그림을 바꿨어요."
+
+                is CharacterRepository.AddResult.Failed ->
+                    message.value = describe(result.reason)
+            }
+        }
+    }
+
     /** 표정 하나에 쓸 그림을 등록한다. */
     fun setExpressionImage(characterId: Long, expression: Expression, uri: Uri) {
         viewModelScope.launch {

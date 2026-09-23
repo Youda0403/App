@@ -57,6 +57,12 @@ fun CharacterEditScreen(
         if (draft == null && character != null) draft = character
     }
 
+    val pickBaseImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) viewModel.replaceBaseImage(characterId, uri)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -86,15 +92,28 @@ fun CharacterEditScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
-            SectionCard("미리보기") {
+            SectionCard("기본 그림") {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    CharacterThumbnail(editing, sizeDp = 140)
+                    // 초안이 아니라 저장된 값을 보여 준다. 그림은 저장 버튼을
+                    // 기다리지 않고 바로 바뀌기 때문이다.
+                    CharacterThumbnail(character ?: editing, sizeDp = 140)
                 }
+                OutlinedButton(
+                    onClick = {
+                        pickBaseImage.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("다른 그림으로 바꾸기") }
                 Text(
-                    "가장자리 투명 여백은 등록할 때 이미 잘라냈어요. " +
+                    "이름·크기·기준점·성격·표정은 그대로 두고 그림만 바꿔요. " +
+                        "가장자리 투명 여백은 등록할 때 자동으로 잘라냅니다. " +
                         "여백이 작을수록 다른 앱을 쓸 때 방해가 덜 됩니다.",
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -176,11 +195,18 @@ fun CharacterEditScreen(
 
             Button(
                 onClick = {
-                    // 표정 그림은 저장 버튼을 기다리지 않고 바로 반영된다.
-                    // 그래서 여기서 초안을 그대로 저장하면 그 사이 등록한 표정이
-                    // 옛날 값으로 덮여 지워진다. 표정만 최신 값을 가져와 붙인다.
-                    val slots = character?.animationSlots ?: editing.animationSlots
-                    viewModel.updateCharacter(editing.copy(animationSlots = slots))
+                    // 그림(기본·표정)은 저장 버튼을 기다리지 않고 바로 반영된다.
+                    // 그래서 여기서 초안을 그대로 저장하면 그 사이 바꾼 그림이
+                    // 옛날 값으로 덮여 사라진다. 그림 쪽만 최신 값을 가져와 붙인다.
+                    val latest = character ?: editing
+                    viewModel.updateCharacter(
+                        editing.copy(
+                            imagePath = latest.imagePath,
+                            originalImagePath = latest.originalImagePath,
+                            animationSlots = latest.animationSlots,
+                            isBuiltIn = latest.isBuiltIn
+                        )
+                    )
                     onBack()
                 },
                 modifier = Modifier.fillMaxWidth()

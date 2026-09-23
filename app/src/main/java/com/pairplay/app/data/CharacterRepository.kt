@@ -65,6 +65,40 @@ class CharacterRepository(private val context: Context) {
     }
 
     /**
+     * 기본 그림을 다른 이미지로 갈아 끼운다.
+     *
+     * 이름·크기·기준점·성격·표정은 그대로 두고 그림만 바꾼다. 새 캐릭터를 만들면
+     * 그 값들을 처음부터 다시 맞춰야 해서 번거롭다.
+     */
+    suspend fun replaceBaseImage(
+        characterId: Long,
+        uri: Uri
+    ): AddResult = withContext(Dispatchers.IO) {
+        val character = characterDao.getById(characterId)
+            ?: return@withContext AddResult.Failed(ImageImporter.Reason.UNREADABLE)
+
+        val key = "char_${characterId}_${System.currentTimeMillis()}"
+        when (val result = ImageImporter.import(context, uri, key)) {
+            is ImageImporter.Result.Failure -> AddResult.Failed(result.reason)
+            is ImageImporter.Result.Success -> {
+                val oldImage = character.imagePath
+                val oldOriginal = character.originalImagePath
+                characterDao.update(
+                    character.copy(
+                        imagePath = result.imagePath,
+                        originalImagePath = result.originalPath,
+                        // 기본 제공 캐릭터에 내 그림을 넣었으면 더는 기본이 아니다.
+                        isBuiltIn = false
+                    )
+                )
+                // 바꿔 끼운 뒤에 지운다. 먼저 지우면 저장에 실패했을 때 둘 다 잃는다.
+                ImageImporter.deleteFiles(oldImage, oldOriginal)
+                AddResult.Added(characterId)
+            }
+        }
+    }
+
+    /**
      * 표정 하나에 쓸 그림을 등록한다.
      * 기존 캐릭터 그림과 똑같이 여백을 잘라 내고 앱 저장소로 들여온다.
      */

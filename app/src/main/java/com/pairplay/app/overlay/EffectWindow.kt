@@ -55,6 +55,9 @@ class EffectWindow(
     private var lastX = Int.MIN_VALUE
     private var lastY = Int.MIN_VALUE
 
+    /** 표시를 띄워도 되는지. 캐릭터를 숨기면 false 가 된다. */
+    private var allowed = true
+
     fun setSize(widthPx: Int, heightPx: Int) {
         val w = widthPx.coerceAtLeast(1)
         val h = heightPx.coerceAtLeast(1)
@@ -98,11 +101,20 @@ class EffectWindow(
 
     /** 지금 떠 있는 기호들을 갱신한다. */
     fun setContent(effects: List<RenderedEffect>) {
-        val shouldShow = effects.isNotEmpty()
+        val shouldShow = allowed && effects.isNotEmpty()
         if (!shouldShow && view.visibility == View.GONE) return
 
         view.setContent(effects)
         view.visibility = if (shouldShow) View.VISIBLE else View.GONE
+    }
+
+    /** 캐릭터를 숨기면 표시도 함께 숨긴다. 남겨 두면 허공에 하트만 뜬다. */
+    fun setVisible(visible: Boolean) {
+        if (!visible) {
+            view.visibility = View.GONE
+            view.setContent(emptyList())
+        }
+        allowed = visible
     }
 
     fun attach() {

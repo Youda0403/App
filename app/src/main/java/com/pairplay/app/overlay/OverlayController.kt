@@ -110,6 +110,13 @@ class OverlayController(
         /** 이번 이동이 화면 가장자리에 막혀서 끝나는지. 끝나면 부딪히는 연출을 한다. */
         var willHitWall: Boolean = false
 
+        /**
+         * 지금 화면에 보이는지.
+         * 숨겨 두었거나 한 명만 쓰는 모드의 둘째라면 아예 움직이지 않는다.
+         * 보이지 않는데 속으로 움직이면 표시만 허공에 뜬다.
+         */
+        var visible: Boolean = true
+
         val seed: Float = Random.nextFloat()
         var displayHeight: Float = 0f
         var displayWidth: Float = 0f
@@ -204,13 +211,20 @@ class OverlayController(
         if (!keepA) {
             runtimeA?.let { teardown(it) }
             runtimeA = a?.let { build(it, CharacterWindow.Slot.A) }
+            // 자리 잡기는 **새로 만든 캐릭터에게만** 한다.
+            // 예전에는 여기서 둘 다 저장된 자리로 되돌렸다. 그런데 캐릭터를 놓을
+            // 때마다 위치가 저장되고, 저장이 곧 설정 변경이라 이 메서드가 다시 불린다.
+            // 그래서 하나를 놓을 때마다 둘 다 저장된 자리로 순간이동했다.
+            // (한쪽을 옮겼는데 다른 쪽이 움직이고, 놓으면 튀던 원인)
+            runtimeA?.let { placeInitial(it, isFirst = true) }
         }
         if (!keepB) {
             runtimeB?.let { teardown(it) }
             runtimeB = b?.let { build(it, CharacterWindow.Slot.B) }
+            runtimeB?.let { placeInitial(it, isFirst = false) }
         }
         applySettingsToWindows()
-        placeInitialPositions()
+        updateVisibility()
         configureDirector(a, b, pair)
     }
 
@@ -303,7 +317,7 @@ class OverlayController(
             val now = System.currentTimeMillis()
             val sceneStarted = director.onTrigger(SceneTrigger.MUSIC_STARTED, now)
             forEachRuntime { runtime ->
-                if (!runtime.interactionHeld) {
+                if (!runtime.interactionHeld && runtime.visible) {
                     if (sceneStarted) {
                         applyDirection(runtime, now)
                     } else {
@@ -482,54 +496,58 @@ class OverlayController(
 
     private fun applySettingsToWindows() {
         forEachRuntime { it.window.setOpacity(settings.opacity) }
-        runtimeB?.window?.setVisible(settings.mode == OverlayMode.PAIR)
     }
 
+    /**
+     * 지금 누구를 보여 줄지 정한다.
+     *
+     * 숨긴 캐릭터는 **완전히 멈춘다.** 예전에는 그림만 감추고 속으로는 계속
+     * 움직여서, 숨겨 놓아도 하트와 느낌표가 허공에 계속 떴다.
+     * 한 명만 쓰는 모드에서 둘째가 보이지 않을 때도 마찬가지였다.
+     */
     private fun updateVisibility() {
         val hidden = settings.isHiddenAt(System.currentTimeMillis())
-        runtimeA?.window?.setVisible(!hidden)
-        runtimeB?.window?.setVisible(!hidden && settings.mode == OverlayMode.PAIR)
-        if (hidden) {
-            forEachRuntime {
-                it.effects.clear()
-                it.effectWindow.setContent(emptyList())
-            }
+        runtimeA?.let { setRuntimeVisible(it, !hidden) }
+        runtimeB?.let {
+            setRuntimeVisible(it, !hidden && settings.mode == OverlayMode.PAIR)
         }
     }
 
-    private fun placeInitialPositions() {
+    private fun setRuntimeVisible(runtime: Runtime, visible: Boolean) {
+        runtime.window.setVisible(visible)
+        runtime.effectWindow.setVisible(visible)
+        if (runtime.visible == visible) return
+        runtime.visible = visible
+        if (!visible) {
+            // 떠 있던 표시를 남겨 두면 다시 보일 때 옛날 하트가 그대로 떠 있다.
+            runtime.effects.clear()
+            runtime.effectWindow.setContent(emptyList())
+            runtime.interactionHeld = false
+            runtime.knockVX = 0f
+        }
+    }
+
+    /**
+     * 캐릭터를 처음 만들 때 한 번만 자리를 잡아 준다.
+     * 저장해 둔 자리가 있으면 거기로, 없으면 화면 아래쪽 적당한 곳에 세운다.
+     */
+    private fun placeInitial(runtime: Runtime, isFirst: Boolean) {
         refreshScreenSize()
-        val floorY = screenHeight * FLOOR_RATIO
+        val savedX = if (isFirst) settings.positionAX else settings.positionBX
+        val savedY = if (isFirst) settings.positionAY else settings.positionBY
 
-        runtimeA?.let { runtime ->
-            val x = if (settings.positionAX != OverlaySettings.UNSET_POSITION) {
-                settings.positionAX.toFloat()
-            } else {
-                screenWidth * 0.32f
-            }
-            val y = if (settings.positionAY != OverlaySettings.UNSET_POSITION) {
-                settings.positionAY.toFloat()
-            } else {
-                floorY
-            }
-            runtime.window.setAnchor(clampX(x, runtime), clampY(y))
-            runtime.window.commit()
+        val x = if (savedX != OverlaySettings.UNSET_POSITION) {
+            savedX.toFloat()
+        } else {
+            screenWidth * if (isFirst) 0.32f else 0.62f
         }
-
-        runtimeB?.let { runtime ->
-            val x = if (settings.positionBX != OverlaySettings.UNSET_POSITION) {
-                settings.positionBX.toFloat()
-            } else {
-                screenWidth * 0.62f
-            }
-            val y = if (settings.positionBY != OverlaySettings.UNSET_POSITION) {
-                settings.positionBY.toFloat()
-            } else {
-                floorY
-            }
-            runtime.window.setAnchor(clampX(x, runtime), clampY(y))
-            runtime.window.commit()
+        val y = if (savedY != OverlaySettings.UNSET_POSITION) {
+            savedY.toFloat()
+        } else {
+            screenHeight * FLOOR_RATIO
         }
+        runtime.window.setAnchor(clampX(x, runtime), clampY(y))
+        runtime.window.commit()
     }
 
     // ---------------------------------------------------------------- 애니메이션 루프
@@ -540,14 +558,19 @@ class OverlayController(
             lastVisibilityCheck = now
             refreshScreenSize()
             updateVisibility()
+            keepOnScreen()
         }
 
-        runtimeA?.let { updateRuntime(it, now) }
-        runtimeB?.let { updateRuntime(it, now) }
+        val a = runtimeA?.takeIf { it.visible }
+        val b = runtimeB?.takeIf { it.visible }
+        if (a == null && b == null) return
+
+        a?.let { updateRuntime(it, now) }
+        b?.let { updateRuntime(it, now) }
 
         // 부딪혀 튕겨 나가는 중이면 그만큼 더 밀린다.
-        runtimeA?.let { applyKnockback(it) }
-        runtimeB?.let { applyKnockback(it) }
+        a?.let { applyKnockback(it) }
+        b?.let { applyKnockback(it) }
 
         // 절대 겹치지 않게 밀어낸다. 새로 닿으면 콩 부딪히며 튕겨 나간다.
         resolveOverlap(now)
@@ -555,13 +578,28 @@ class OverlayController(
         // 창을 실제로 옮기는 일은 한 프레임에 **여기 한 번**뿐이다.
         // 위치를 정하는 도중에 옮기면(동작 계산 따로, 밀어내기 따로) 한 프레임에
         // 창이 두 번 움직여 화면이 튄다.
-        runtimeA?.let {
+        a?.let {
             it.window.commit()
             syncEffectWindow(it, now)
         }
-        runtimeB?.let {
+        b?.let {
             it.window.commit()
             syncEffectWindow(it, now)
+        }
+    }
+
+    /**
+     * 화면이 돌아가거나 크기가 바뀌면 캐릭터가 화면 밖에 남을 수 있다.
+     * 자리 잡기는 처음 한 번만 하므로, 여기서 주기적으로 화면 안쪽으로 들인다.
+     */
+    private fun keepOnScreen() {
+        forEachRuntime { runtime ->
+            if (runtime.interactionHeld) return@forEachRuntime
+            val x = clampX(runtime.window.anchorX, runtime)
+            val y = clampY(runtime.window.anchorY)
+            if (x != runtime.window.anchorX || y != runtime.window.anchorY) {
+                shiftRuntime(runtime, x - runtime.window.anchorX, y - runtime.window.anchorY)
+            }
         }
     }
 
@@ -707,7 +745,7 @@ class OverlayController(
      * 연달아 띄우지 않도록 최소 간격도 여기서 본다.
      */
     private fun spawnMood(runtime: Runtime, action: CharacterAction, now: Long) {
-        if (!settings.bubblesEnabled) return
+        if (!settings.bubblesEnabled || !runtime.visible) return
         val kind = MoodMapper.forAction(action, runtime.currentScriptId != null) ?: return
         if (now - runtime.lastMoodAt < MoodMapper.MIN_INTERVAL_MS) return
         runtime.lastMoodAt = now
@@ -752,8 +790,8 @@ class OverlayController(
      * 한쪽이 화면 끝에 막혀 못 비키면 그만큼 다른 쪽이 더 비켜 준다.
      */
     private fun resolveOverlap(now: Long) {
-        val a = runtimeA ?: return
-        val b = runtimeB ?: return
+        val a = runtimeA?.takeIf { it.visible } ?: return
+        val b = runtimeB?.takeIf { it.visible } ?: return
         if (settings.mode != OverlayMode.PAIR) return
 
         val gap = minSeparationX(a, b)
@@ -786,21 +824,18 @@ class OverlayController(
 
         if (distance >= gap) return
 
-        val push = (gap - distance) * separationDirection
-        val aFree = !a.interactionHeld
-        val bFree = !b.interactionHeld
-        when {
-            // 둘 다 손에 잡혀 있으면 사용자가 일부러 붙여 놓은 것이다. 건드리지 않는다.
-            !aFree && !bFree -> return
-            // 한쪽이 잡혀 있으면 자유로운 쪽이 통째로 비켜 준다.
-            !aFree -> shiftRuntime(b, push, 0f)
-            !bFree -> shiftRuntime(a, -push, 0f)
-            else -> {
-                shiftRuntime(a, -push / 2f, 0f)
-                // a 가 화면 끝에 막혀 못 비킨 만큼은 b 가 대신 더 비켜 준다.
-                shiftRuntime(b, push + lastShiftX, 0f)
-            }
-        }
+        // 손에 잡혀 있는 동안에는 아무도 밀지 않는다.
+        // 사용자가 일부러 붙여 놓는 중인데 상대를 밀어내면, 한쪽을 옮기는 것만으로
+        // 다른 쪽이 화면을 가로질러 쫓겨난다. 손을 놓으면 그때 알아서 비켜선다.
+        if (held) return
+
+        // 겹친 만큼을 밀어내되, 한 프레임에 움직일 수 있는 거리를 제한한다.
+        // 제한이 없으면 손을 놓는 순간 상대가 순간이동한 것처럼 튄다.
+        val overlap = (gap - distance).coerceAtMost(MAX_SEPARATION_STEP_PX)
+        val push = overlap * separationDirection
+        shiftRuntime(a, -push / 2f, 0f)
+        // a 가 화면 끝에 막혀 못 비킨 만큼은 b 가 대신 더 비켜 준다.
+        shiftRuntime(b, push + lastShiftX, 0f)
     }
 
     /**
@@ -862,8 +897,8 @@ class OverlayController(
 
     /** 둘이 충분히 가까우면 '마주쳤을 때' 장면을 시작해 본다. */
     private fun tryMeetScene(now: Long) {
-        val a = runtimeA ?: return
-        val b = runtimeB ?: return
+        val a = runtimeA?.takeIf { it.visible } ?: return
+        val b = runtimeB?.takeIf { it.visible } ?: return
         if (settings.mode != OverlayMode.PAIR) return
         if (a.interactionHeld || b.interactionHeld) return
 
@@ -937,14 +972,29 @@ class OverlayController(
         when (action) {
             CharacterAction.WALK -> setupWalk(runtime, now)
             CharacterAction.APPROACH -> setupApproach(runtime, now)
-            CharacterAction.LOOK_AT -> {
-                otherOf(runtime)?.let { other ->
-                    faceTo(runtime, other.window.anchorX >= runtime.window.anchorX, now)
-                }
-            }
-
             else -> Unit
         }
+
+        // 제자리 동작일 때는 짝을 바라본다.
+        // 예전에는 쳐다보기 같은 몇몇 동작만 상대를 봤고, 나머지는 마지막으로
+        // 걷던 방향을 그대로 보고 있었다. 그래서 둘이 서로 등을 지고 서 있었다.
+        // 걷는 동작은 가는 방향을, 벽에 부딪힌 순간은 돌아서는 방향을 유지한다.
+        if (!action.moves && action != CharacterAction.BUMP) {
+            faceOther(runtime, now)
+        }
+    }
+
+    /**
+     * 짝이 있으면 그쪽을 바라본다.
+     *
+     * 거의 같은 자리에 있을 때는 그대로 둔다. 조금만 흔들려도 좌우가 뒤집혀
+     * 몸을 계속 돌리게 되기 때문이다.
+     */
+    private fun faceOther(runtime: Runtime, now: Long) {
+        val other = otherOf(runtime) ?: return
+        val delta = other.window.anchorX - runtime.window.anchorX
+        if (abs(delta) < runtime.displayWidth * FACE_DEADZONE_RATIO) return
+        faceTo(runtime, delta >= 0f, now)
     }
 
     private fun setupWalk(runtime: Runtime, now: Long) {
@@ -1010,12 +1060,13 @@ class OverlayController(
 
     /** 표시는 설정에서 끌 수 있다. 띄우는 곳은 전부 이 창구를 거친다. */
     private fun spawnEffect(runtime: Runtime, kind: EffectKind, count: Int, now: Long) {
-        if (!settings.effectsEnabled) return
+        if (!settings.effectsEnabled || !runtime.visible) return
         runtime.effects.spawn(kind, count, now)
     }
 
+    /** 짝. 숨겨져 있거나 한 명만 쓰는 모드라면 없는 것으로 본다. */
     private fun otherOf(runtime: Runtime): Runtime? =
-        if (runtime === runtimeA) runtimeB else runtimeA
+        (if (runtime === runtimeA) runtimeB else runtimeA)?.takeIf { it.visible }
 
     // ---------------------------------------------------------------- 터치
 
@@ -1240,6 +1291,9 @@ class OverlayController(
         /** 방향을 뽑을 수 없을 만큼 가까운지 판단하는 거리(px). */
         private const val NEAR_ZERO_PX = 1f
 
+        /** 한 프레임에 밀어낼 수 있는 최대 거리(px). 넘으면 순간이동처럼 보인다. */
+        private const val MAX_SEPARATION_STEP_PX = 14f
+
         /** 이 거리 안이면 '마주쳤다'고 본다. */
         private const val MEET_DISTANCE_FACTOR = 1.6f
 
@@ -1248,6 +1302,9 @@ class OverlayController(
 
         /** 몸을 돌리는 데 걸리는 시간. */
         private const val FLIP_MS = 220L
+
+        /** 이보다 가까이 겹쳐 서 있으면 어느 쪽을 볼지 다시 정하지 않는다. */
+        private const val FACE_DEADZONE_RATIO = 0.25f
 
         /** 끌리는 속도를 얼마나 부드럽게 섞을지. 1 이면 손 떨림이 그대로 드러난다. */
         private const val VELOCITY_SMOOTHING = 0.35f
