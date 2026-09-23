@@ -258,6 +258,8 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
     fun setMusicReaction(on: Boolean) = launchSetting { settingsStore.setMusicReaction(on) }
     fun setEffectsEnabled(on: Boolean) = launchSetting { settingsStore.setEffectsEnabled(on) }
     fun setBubblesEnabled(on: Boolean) = launchSetting { settingsStore.setBubblesEnabled(on) }
+
+    fun setDeviceReactions(on: Boolean) = launchSetting { settingsStore.setDeviceReactions(on) }
     fun setActivity(percent: Int) = launchSetting { settingsStore.setActivityPercent(percent) }
     fun setOnboardingCompleted() = launchSetting { settingsStore.setOnboardingCompleted(true) }
 

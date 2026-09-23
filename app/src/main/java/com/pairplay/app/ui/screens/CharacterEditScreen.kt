@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -161,13 +162,7 @@ fun CharacterEditScreen(
                 ) { draft = editing.copy(anchorYRatio = it / 100f) }
             }
 
-            SectionCard("방향") {
-                LabeledSwitch(
-                    label = "좌우 반전",
-                    description = "원본 이미지가 반대쪽을 보고 있을 때 켜세요.",
-                    checked = editing.flipHorizontal
-                ) { draft = editing.copy(flipHorizontal = it) }
-            }
+            FacingSection(character ?: editing, editing) { draft = it }
 
             ExpressionSection(characterId, character ?: editing, viewModel)
 
@@ -295,5 +290,89 @@ private fun ExpressionThumbnail(path: String?) {
             contentScale = ContentScale.Fit,
             modifier = Modifier.size(44.dp)
         )
+    }
+}
+
+/**
+ * 바라보는 방향.
+ *
+ * 앱은 '오른쪽을 볼 때'를 기준으로 그림을 그리고, 왼쪽을 볼 때는 좌우를 뒤집는다.
+ * 그런데 원본 그림이 이미 왼쪽을 보고 있으면 기준이 반대가 되어, 둘이 마주 보라고
+ * 세워 놔도 서로 등을 돌린 것처럼 보인다.
+ *
+ * 예전에는 '좌우 반전' 스위치 하나였는데, 켜면 어떻게 되는지 볼 수가 없어서
+ * 맞게 맞춘 건지 알기 어려웠다. 지금은 두 방향을 나란히 보여 주고 고르게 한다.
+ */
+@Composable
+private fun FacingSection(
+    saved: CharacterEntity,
+    editing: CharacterEntity,
+    onChange: (CharacterEntity) -> Unit
+) {
+    SectionCard("바라보는 방향") {
+        Text(
+            "원본 그림이 어느 쪽을 보고 있나요? 아래 두 그림 중 " +
+                "얼굴이 제대로 보이는 쪽을 고르세요. 둘이 서로 마주 보게 하는 데 쓰입니다.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            FacingChoice(
+                label = "오른쪽을 봐요",
+                character = saved,
+                // 오른쪽을 볼 때 그대로 그려지려면 원본이 오른쪽을 보고 있어야 한다.
+                mirrored = false,
+                selected = !editing.flipHorizontal,
+                modifier = Modifier.weight(1f)
+            ) { onChange(editing.copy(flipHorizontal = false)) }
+
+            FacingChoice(
+                label = "왼쪽을 봐요",
+                character = saved,
+                mirrored = true,
+                selected = editing.flipHorizontal,
+                modifier = Modifier.weight(1f)
+            ) { onChange(editing.copy(flipHorizontal = true)) }
+        }
+        Text(
+            "고른 쪽이 '원본 그대로'가 되고, 반대쪽을 볼 때는 앱이 좌우를 뒤집어 그려요.",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+@Composable
+private fun FacingChoice(
+    label: String,
+    character: CharacterEntity,
+    mirrored: Boolean,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val file = File(character.imagePath).takeIf { it.exists() }
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (file == null) {
+            Text("이미지 없음", style = MaterialTheme.typography.bodySmall)
+        } else {
+            AsyncImage(
+                model = file,
+                contentDescription = label,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .size(96.dp)
+                    .graphicsLayer { scaleX = if (mirrored) -1f else 1f }
+            )
+        }
+        if (selected) {
+            Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(label) }
+        } else {
+            OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(label) }
+        }
     }
 }

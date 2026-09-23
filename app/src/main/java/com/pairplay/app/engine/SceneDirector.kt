@@ -65,6 +65,9 @@ class SceneDirector(
     private var stepEndsA = 0L
     private var stepEndsB = 0L
 
+    /** 직전에 고른 혼자 동작. 같은 동작이 연달아 나오지 않게 하는 데 쓴다. */
+    private val lastAmbient = HashMap<Performer, CharacterAction>()
+
     val activeScriptId: String? get() = active?.id
     val activeScriptName: String? get() = active?.name
 
@@ -127,6 +130,7 @@ class SceneDirector(
     fun reset() {
         abandonScript()
         cooldownUntil.clear()
+        lastAmbient.clear()
         stepEndsA = 0L
         stepEndsB = 0L
     }
@@ -169,7 +173,9 @@ class SceneDirector(
         performer: Performer,
         now: Long,
         musicPlaying: Boolean = false,
-        nearEdge: Boolean = false
+        nearEdge: Boolean = false,
+        /** 방금 놀라거나 부딪혔는지. 그 직후에 곧바로 조는 건 뜬금없다. */
+        justStartled: Boolean = false
     ): Direction {
         advance(now)
 
@@ -191,7 +197,8 @@ class SceneDirector(
             return Direction(CharacterAction.IDLE, WAITING_MS)
         }
 
-        val action = ambientAction(performer, musicPlaying, nearEdge)
+        val action = ambientAction(performer, musicPlaying, nearEdge, justStartled)
+        lastAmbient[performer] = action
         val duration = scaledDuration(action.defaultDurationMs, performer)
         markStepEnd(performer, now + duration)
         return Direction(action, duration)
@@ -310,9 +317,19 @@ class SceneDirector(
     private fun ambientAction(
         performer: Performer,
         musicPlaying: Boolean,
-        nearEdge: Boolean
+        nearEdge: Boolean,
+        justStartled: Boolean
     ): CharacterAction {
         val traits = traitsOf(performer) ?: CharacterTraits()
+
+        /**
+         * 조는 동작은 다른 동작보다 세 배 가까이 길다. 뽑히는 횟수가 적어도
+         * 화면에 떠 있는 시간은 길어서, 보고 있으면 '늘 자고 있네' 가 된다.
+         * 그래서 가중치를 낮게 잡고, 아래 두 경우에는 아예 뽑지 않는다.
+         * - 방금 놀라거나 부딪혔을 때 (놀란 다음 바로 자면 뜬금없다)
+         * - 직전에도 졸았을 때 (연달아 조는 것으로 보인다)
+         */
+        val canDoze = !justStartled && lastAmbient[performer] != CharacterAction.DOZE
 
         if (musicPlaying) {
             val musical = listOf(CharacterAction.RHYTHM, CharacterAction.JUMP)
@@ -326,7 +343,7 @@ class SceneDirector(
             add(CharacterAction.BREATHE to 16)
             add(CharacterAction.WALK to 6 + traits.energy / 3)
             add(CharacterAction.JUMP to 2 + traits.mischief / 5)
-            add(CharacterAction.DOZE to 2 + (100 - traits.energy) / 5)
+            if (canDoze) add(CharacterAction.DOZE to 1 + (100 - traits.energy) / 14)
             if (nearEdge) add(CharacterAction.LEAN to 10 + traits.shyness / 8)
             if (hasPartner) {
                 add(CharacterAction.LOOK_AT to 4 + traits.warmth / 8)

@@ -39,6 +39,9 @@ data class OverlaySettings(
     /** 음악 재생 상태에 반응할지. 권한이 없으면 무시된다. */
     val musicReactionEnabled: Boolean = true,
 
+    /** 흔들기·충전기·이어폰·잠금 해제에 반응할지. 추가 권한은 필요 없다. */
+    val deviceReactionsEnabled: Boolean = true,
+
     /** 하트·음표 같은 표시를 띄울지. */
     val effectsEnabled: Boolean = true,
 
@@ -91,6 +94,7 @@ class OverlaySettingsStore(private val context: Context) {
         val COLLAPSED = booleanPreferencesKey("collapsed")
         val LINKED_DRAG = booleanPreferencesKey("linked_drag")
         val MUSIC = booleanPreferencesKey("music_reaction")
+        val DEVICE_REACTIONS = booleanPreferencesKey("device_reactions_enabled")
         val EFFECTS = booleanPreferencesKey("effects_enabled")
         val BUBBLES = booleanPreferencesKey("bubbles_enabled")
         val ACTIVITY = intPreferencesKey("activity_percent")
@@ -112,6 +116,7 @@ class OverlaySettingsStore(private val context: Context) {
             collapsed = prefs[Keys.COLLAPSED] ?: defaults.collapsed,
             linkedDrag = prefs[Keys.LINKED_DRAG] ?: defaults.linkedDrag,
             musicReactionEnabled = prefs[Keys.MUSIC] ?: defaults.musicReactionEnabled,
+            deviceReactionsEnabled = prefs[Keys.DEVICE_REACTIONS] ?: defaults.deviceReactionsEnabled,
             effectsEnabled = prefs[Keys.EFFECTS] ?: defaults.effectsEnabled,
             bubblesEnabled = prefs[Keys.BUBBLES] ?: defaults.bubblesEnabled,
             activityPercent = prefs[Keys.ACTIVITY] ?: defaults.activityPercent,
@@ -155,6 +160,9 @@ class OverlaySettingsStore(private val context: Context) {
     suspend fun setEffectsEnabled(enabled: Boolean) = edit { it[Keys.EFFECTS] = enabled }
 
     suspend fun setBubblesEnabled(enabled: Boolean) = edit { it[Keys.BUBBLES] = enabled }
+
+    suspend fun setDeviceReactions(enabled: Boolean) =
+        edit { it[Keys.DEVICE_REACTIONS] = enabled }
 
     suspend fun setActivityPercent(percent: Int) = edit {
         it[Keys.ACTIVITY] = percent.coerceIn(0, 100)

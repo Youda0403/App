@@ -45,6 +45,10 @@ class CharacterWindow(
         fun onTouchDown(slot: Slot, rawX: Float, rawY: Float)
 
         fun onTap(slot: Slot)
+
+        /** 짧은 사이에 두 번 톡톡 쳤다. 한 번 칠 때보다 크게 반응한다. */
+        fun onDoubleTap(slot: Slot)
+
         fun onLongPress(slot: Slot)
         /** 손가락이 처음 닿은 화면 좌표를 함께 넘긴다. */
         fun onDragStart(slot: Slot, rawX: Float, rawY: Float)
@@ -128,6 +132,9 @@ class CharacterWindow(
     private var lastMoveSign = 0
     private var lastPetTickMs = 0L
     private var maxDistFromDown = 0f
+
+    /** 마지막으로 톡 친 시각. 두 번 톡톡을 가려내는 데 쓴다. */
+    private var lastTapMs = 0L
 
     /**
      * 처음 크게 움직인 방향(단위 벡터).
@@ -318,7 +325,15 @@ class CharacterWindow(
                     dragging -> callbacks.onDragEnd(slot)
                     !longPressFired -> {
                         v.performClick()
-                        callbacks.onTap(slot)
+                        val now = SystemClock.uptimeMillis()
+                        // 짧은 사이에 두 번 쳤으면 두 번 톡톡으로 본다.
+                        if (now - lastTapMs < DOUBLE_TAP_WINDOW_MS) {
+                            lastTapMs = 0L
+                            callbacks.onDoubleTap(slot)
+                        } else {
+                            lastTapMs = now
+                            callbacks.onTap(slot)
+                        }
                     }
                 }
                 dragging = false
@@ -444,6 +459,9 @@ class CharacterWindow(
         private const val PET_ORIGIN_SPAN_RATIO = 0.6f
 
         private const val PET_TICK_INTERVAL_MS = 260L
+
+        /** 이 시간 안에 두 번 치면 '두 번 톡톡' 으로 본다. */
+        private const val DOUBLE_TAP_WINDOW_MS = 320L
 
         fun overlayWindowType(): Int =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

@@ -21,6 +21,9 @@ import com.pairplay.app.data.OverlayMode
 import com.pairplay.app.data.OverlaySettings
 import com.pairplay.app.data.OverlaySettingsStore
 import com.pairplay.app.data.PairPlayDatabase
+import com.pairplay.app.device.DeviceEventWatcher
+import com.pairplay.app.device.ShakeWatcher
+import com.pairplay.app.engine.DeviceEvent
 import com.pairplay.app.music.MusicWatcher
 import com.pairplay.app.ui.MainActivity
 import com.pairplay.app.widget.PairPlayWidgetProvider
@@ -50,6 +53,8 @@ class OverlayService : LifecycleService() {
     private lateinit var settingsStore: OverlaySettingsStore
     private var controller: OverlayController? = null
     private var musicWatcher: MusicWatcher? = null
+    private var shakeWatcher: ShakeWatcher? = null
+    private var deviceEventWatcher: DeviceEventWatcher? = null
     private var lastSettings: OverlaySettings = OverlaySettings()
 
     override fun onCreate() {
@@ -118,6 +123,10 @@ class OverlayService : LifecycleService() {
         PairPlayWidgetProvider.refresh(applicationContext, force = true)
         musicWatcher?.stop()
         musicWatcher = null
+        shakeWatcher?.stop()
+        shakeWatcher = null
+        deviceEventWatcher?.stop()
+        deviceEventWatcher = null
         controller?.release()
         controller = null
         super.onDestroy()
@@ -153,6 +162,7 @@ class OverlayService : LifecycleService() {
 
                 controller?.updateSettings(settings)
                 controller?.setUserScenes(scenes)
+                applyDeviceWatchers(settings.deviceReactionsEnabled)
                 PairPlayWidgetProvider.refresh(applicationContext, force = true)
                 controller?.setCharacters(
                     a = a,
@@ -161,6 +171,31 @@ class OverlayService : LifecycleService() {
                 )
                 updateNotification(settings)
             }
+        }
+    }
+
+    /**
+     * 휴대폰에서 벌어지는 일에 반응하기 위한 감시들.
+     * 추가 권한이 필요 없고, 서비스가 떠 있는 동안에만 동작한다.
+     */
+    private fun applyDeviceWatchers(enabled: Boolean) {
+        if (enabled) {
+            if (shakeWatcher == null) {
+                shakeWatcher = ShakeWatcher(this) {
+                    controller?.onDeviceEvent(DeviceEvent.SHAKE)
+                }.also { it.start() }
+            }
+            if (deviceEventWatcher == null) {
+                deviceEventWatcher = DeviceEventWatcher(this) { event ->
+                    controller?.onDeviceEvent(event)
+                }.also { it.start() }
+            }
+        } else {
+            // 꺼 두었으면 센서도 함께 멈춘다. 켜 둔 채로 무시하면 배터리만 쓴다.
+            shakeWatcher?.stop()
+            shakeWatcher = null
+            deviceEventWatcher?.stop()
+            deviceEventWatcher = null
         }
     }
 

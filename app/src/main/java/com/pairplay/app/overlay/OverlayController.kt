@@ -16,6 +16,8 @@ import com.pairplay.app.data.RelationshipType
 import com.pairplay.app.data.SceneEntity
 import com.pairplay.app.data.SceneTrigger
 import com.pairplay.app.engine.CharacterAction
+import com.pairplay.app.engine.DeviceEvent
+import com.pairplay.app.engine.ReactionMapper
 import com.pairplay.app.engine.Expression
 import com.pairplay.app.engine.ExpressionMapper
 import com.pairplay.app.engine.ExpressionSlots
@@ -308,6 +310,27 @@ class OverlayController(
      * 멈출 때는 동작을 중간에 끊지 않는다. 하던 동작을 끝까지 마치고 나서
      * 다음 동작부터 리듬을 고르지 않게 한다. 그래야 '뚝' 끊기지 않는다.
      */
+    /**
+     * 휴대폰에서 벌어진 일(흔들기·충전기·이어폰·잠금 해제)에 둘 다 반응한다.
+     *
+     * 음악 반응과 같은 결이다. 앱 바깥에서 사용자가 한 행동에 캐릭터가 반응해야
+     * 살아 있는 느낌이 난다.
+     */
+    fun onDeviceEvent(event: DeviceEvent) {
+        if (!settings.deviceReactionsEnabled) return
+        val now = System.currentTimeMillis()
+        forEachRuntime { runtime ->
+            if (runtime.visible && !runtime.interactionHeld) react(runtime, event, now)
+        }
+    }
+
+    /** 성격에 맞는 반응을 골라 실제로 보여 준다. */
+    private fun react(runtime: Runtime, event: DeviceEvent, now: Long) {
+        val reaction = ReactionMapper.forEvent(event, runtime.entity.toTraits())
+        startAction(runtime, reaction.action, now)
+        reaction.effect?.let { spawnEffect(runtime, it, reaction.effectCount, now) }
+    }
+
     fun setMusicPlaying(playing: Boolean) {
         if (musicPlaying == playing) return
         musicPlaying = playing
@@ -651,6 +674,12 @@ class OverlayController(
             runtime.lastPose = pose
             runtime.window.setPose(pose)
         }
+        // 제자리에 있는 동안에는 매 프레임 짝 쪽을 다시 본다.
+        // 동작이 시작할 때만 보면, 그 뒤에 상대가 옮겨 가도 계속 엉뚱한 곳을
+        // 보고 서 있게 된다. (짝을 앞에 놓아도 등을 돌리고 있던 원인)
+        if (!runtime.action.moves && runtime.action != CharacterAction.BUMP) {
+            faceOther(runtime, now)
+        }
         runtime.window.setFacingFactor(facingFactor(runtime, now))
         runtime.window.setLift(
             if (runtime.action == CharacterAction.JUMP) {
@@ -933,7 +962,10 @@ class OverlayController(
             performer = performerOf(runtime),
             now = now,
             musicPlaying = musicPlaying && settings.musicReactionEnabled,
-            nearEdge = isNearEdge(runtime)
+            nearEdge = isNearEdge(runtime),
+            // 놀라거나 부딪힌 직후에 곧바로 졸면 뜬금없다.
+            justStartled = runtime.action == CharacterAction.BUMP ||
+                runtime.action == CharacterAction.SURPRISED
         )
         runtime.currentScriptId = direction.scriptId
         startAction(runtime, direction.action, now, direction.durationMs)
@@ -1103,6 +1135,22 @@ class OverlayController(
         }
     }
 
+    /**
+     * 톡톡 두 번. 한 번 칠 때보다 크게 반응하고, 짝도 같이 쳐다본다.
+     */
+    override fun onDoubleTap(slot: CharacterWindow.Slot) {
+        val runtime = runtimeOf(slot) ?: return
+        val now = System.currentTimeMillis()
+        react(runtime, DeviceEvent.DOUBLE_TAP, now)
+
+        otherOf(runtime)?.let { other ->
+            if (!other.interactionHeld) {
+                faceTo(other, runtime.window.anchorX >= other.window.anchorX, now)
+                startAction(other, CharacterAction.LOOK_AT, now)
+            }
+        }
+    }
+
     override fun onLongPress(slot: CharacterWindow.Slot) {
         // 문서 요구사항: 민감한 화면을 자동으로 피할 수 없으므로
         // 사용자가 즉시 비킬 수 있는 수단(길게 누르기)을 제공한다.
@@ -1146,6 +1194,9 @@ class OverlayController(
     override fun onDragEnd(slot: CharacterWindow.Slot) {
         releaseHold()
         persistPositions()
+        // 내려놓은 자리를 기준으로 둘 다 다시 서로를 본다.
+        val now = System.currentTimeMillis()
+        forEachRuntime { if (it.visible) faceOther(it, now) }
         // 다른 캐릭터 옆에 데려다 놓았다면 서로 반응한다.
         tryMeetScene(System.currentTimeMillis())
     }

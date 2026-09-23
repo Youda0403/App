@@ -176,6 +176,61 @@ class SceneDirectorTest {
     }
 
     /**
+     * 사용자 피드백: "조는 게 너무 자주 나와... 특히 부딪히고 나서 자는 모션이 연달아"
+     *
+     * 조는 동작은 다른 동작보다 세 배 가까이 길다. 그래서 뽑히는 횟수가 적어도
+     * 화면에 떠 있는 시간은 길다. 여기서는 '화면에 떠 있는 시간'으로 확인한다.
+     */
+    @Test
+    fun `조는 시간이 전체의 일부에 그친다`() {
+        val director = director(alwaysStart = false)
+        director.configure(context(RelationshipType.FRIENDS))
+
+        var dozeMs = 0L
+        var totalMs = 0L
+        var now = 1_000L
+        repeat(4_000) {
+            val direction = director.nextDirection(Performer.A, now)
+            if (direction.action == CharacterAction.DOZE) dozeMs += direction.durationMs
+            totalMs += direction.durationMs
+            now += direction.durationMs
+        }
+
+        val share = dozeMs.toDouble() / totalMs
+        assertTrue("조는 시간이 전체의 %.0f%% 나 됩니다".format(share * 100), share < 0.15)
+    }
+
+    @Test
+    fun `졸고 나서 곧바로 또 졸지 않는다`() {
+        val director = director(alwaysStart = false)
+        director.configure(context(RelationshipType.FRIENDS))
+
+        var previous: CharacterAction? = null
+        var now = 1_000L
+        repeat(3_000) {
+            val action = director.nextDirection(Performer.A, now).action
+            if (previous == CharacterAction.DOZE) {
+                assertTrue("조는 동작이 연달아 나왔습니다", action != CharacterAction.DOZE)
+            }
+            previous = action
+            now += 1_000L
+        }
+    }
+
+    @Test
+    fun `놀란 직후에는 졸지 않는다`() {
+        val director = director(alwaysStart = false)
+        director.configure(context(RelationshipType.FRIENDS))
+
+        var now = 1_000L
+        repeat(3_000) {
+            val action = director.nextDirection(Performer.A, now, justStartled = true).action
+            assertTrue("부딪힌 직후에 졸았습니다", action != CharacterAction.DOZE)
+            now += 1_000L
+        }
+    }
+
+    /**
      * 실제로 터졌던 버그의 재발 방지.
      *
      * 기다리는 동안 주던 짧은 간격이 '이번 마디가 끝나는 시각'까지 밀어 버려서,
