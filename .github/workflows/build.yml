@@ -140,7 +140,25 @@ jobs:
             echo "처음 설치할 때는 '출처를 알 수 없는 앱 설치 허용'이 필요하고,"
             echo "Play 프로텍트 경고가 뜰 수 있습니다."
           } > release-notes.md
-          gh release create "$TAG" "pairplay-${TAG}.apk" \
+          # 릴리스를 만드는 것과 APK 를 올리는 것을 나눈다.
+          # 한 번에 하면, 릴리스는 만들어졌는데 파일만 안 올라가는 일이 생겼을 때
+          # (실제로 build-19 에서 그랬다) 다시 시도할 방법이 없다.
+          gh release create "$TAG" \
             --title "PAIRPLAY $TAG" \
             --notes-file release-notes.md \
-            --target "${COMMIT_SHA}"
+            --target "${COMMIT_SHA}" || echo "릴리스가 이미 있습니다. 파일만 올립니다."
+
+          for attempt in 1 2 3; do
+            if gh release upload "$TAG" "pairplay-${TAG}.apk" --clobber; then
+              break
+            fi
+            echo "APK 올리기 실패 (${attempt}/3). 잠시 뒤 다시 시도합니다."
+            sleep $((attempt * 5))
+          done
+
+          # 진짜로 올라갔는지 확인한다. 릴리스만 덩그러니 남으면 폰에서 받을 게 없다.
+          if ! gh release view "$TAG" --json assets --jq '.assets[].name' \
+              | grep -q "pairplay-${TAG}.apk"; then
+            echo "::error::APK 가 릴리스에 올라가지 않았습니다."
+            exit 1
+          fi
