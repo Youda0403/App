@@ -58,7 +58,17 @@ data class EffectParticle(
     val tiltDeg: Float
 )
 
-/** 그릴 준비가 끝난 한 프레임 분량의 표시. */
+/**
+ * 그릴 준비가 끝난 한 프레임 분량의 표시.
+ *
+ * [yRatio] 의 기준을 잘 볼 것.
+ * - 0 : 그릴 수 있는 가장 높은 곳
+ * - 1 : **캐릭터 머리 꼭대기**
+ * - 1 보다 크면 그만큼 캐릭터 그림 위로 내려온다 (땀처럼 얼굴에 붙는 것)
+ *
+ * 예전에는 0~1 이 창의 위아래였다. 그러면 '캐릭터 위에 붙는' 표시를 놓을 자리가
+ * 없어서 땀이 머리 위 허공에 떴다.
+ */
 data class RenderedEffect(
     val kind: EffectKind,
     val xRatio: Float,
@@ -152,12 +162,12 @@ class EffectEmitter(
         }
 
         EffectStyle.CLING -> {
-            // 캐릭터에 붙어서 살짝 떨린다.
-            val bob = sin(t * 5f * Math.PI.toFloat()) * 0.02f
+            // 캐릭터 얼굴 위에 붙어서 살짝 떨린다.
+            val bob = sin(t * 5f * Math.PI.toFloat()) * 0.05f
             RenderedEffect(
                 kind = particle.kind,
                 xRatio = particle.startXRatio,
-                yRatio = (CLING_Y_RATIO + bob).coerceIn(0f, 1f),
+                yRatio = (CLING_Y_RATIO + bob).coerceIn(1f, MAX_CLING_Y_RATIO),
                 alpha = alphaAt(t),
                 scale = particle.sizeRatio * scaleAt(t),
                 rotationDeg = 0f
@@ -188,8 +198,14 @@ class EffectEmitter(
          */
         const val MAX_RENDER_SCALE = 1.45f
 
-        /** 붙어 있는 표시가 놓이는 높이. 1 에 가까울수록 캐릭터 쪽이다. */
-        const val CLING_Y_RATIO = 0.82f
+        /**
+         * 붙어 있는 표시가 놓이는 높이.
+         * 1 이 머리 꼭대기이므로, 1 보다 커야 캐릭터 얼굴 위에 얹힌다.
+         */
+        const val CLING_Y_RATIO = 1.35f
+
+        /** 붙는 표시가 내려갈 수 있는 한계. 더 내려가면 창 밖으로 나간다. */
+        const val MAX_CLING_Y_RATIO = 1.6f
 
         private const val RISE_DURATION_MS = 1_100L
         private const val CLING_DURATION_MS = 1_500L
@@ -208,7 +224,8 @@ class EffectEmitter(
 
         private fun startXFor(style: EffectStyle, random: Random): Float = when (style) {
             // 붙는 표시는 얼굴 옆쪽 한자리에 고정한다.
-            EffectStyle.CLING -> 0.74f
+            // 0.5 가 캐릭터 한가운데다. 너무 키우면 그림 밖으로 나간다.
+            EffectStyle.CLING -> 0.66f
             EffectStyle.RISE -> 0.5f + (random.nextFloat() - 0.5f) * 0.5f
         }
     }

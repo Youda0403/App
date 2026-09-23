@@ -95,10 +95,6 @@ class CharacterWindow(
     var liftPx = 0f
         private set
 
-    /** 매달려 흔들릴 때 창을 좌우로 옮기는 양(px). */
-    var swingShiftX = 0f
-        private set
-
     private var displayWidth = 0f
     private var displayHeight = 0f
     private var anchorXRatio = 0.5f
@@ -204,24 +200,12 @@ class CharacterWindow(
     }
 
     /**
-     * 매달려 흔들릴 때 창 전체를 좌우로 옮기는 양(px).
-     *
-     * 캐릭터는 발밑을 기준으로 회전한다. 그대로 두면 손가락에 매달렸을 때
-     * 머리가 좌우로 흔들려서 '들려 있다'기보다 '몸을 기울인다'로 보인다.
-     * 창을 반대로 밀어 주면 머리가 손가락 아래에 머물고 몸이 흔들려,
-     * 실제로 대롱대롱 매달린 것처럼 보인다.
-     */
-    fun setSwingShiftX(shift: Float) {
-        swingShiftX = shift
-    }
-
-    /**
      * 기록해 둔 위치를 실제 창에 반영한다.
      * 한 프레임에 한 번만 불러야 한다. 위치와 점프 높이를 따로 반영하면
      * 프레임당 창을 두 번 옮기게 되어 화면이 튄다.
      */
     fun commit() {
-        val x = (anchorX + swingShiftX - displayWidth * anchorXRatio - paddingX).roundToInt()
+        val x = (anchorX - displayWidth * anchorXRatio - paddingX).roundToInt()
         val y = (anchorY - displayHeight * anchorYRatio - paddingY - liftPx).roundToInt()
         if (x == committedX && y == committedY) return
 
@@ -276,9 +260,6 @@ class CharacterWindow(
     /** 머리 꼭대기의 화면상 세로 위치. 표시 창을 올려놓을 자리를 잡는 데 쓴다. */
     val headTopY: Float
         get() = anchorY - displayHeight * anchorYRatio - liftPx
-
-    /** 실제로 그려지는 가로 위치. 흔들림으로 밀린 만큼까지 더한 값이다. */
-    val renderX: Float get() = anchorX + swingShiftX
 
     private fun handleTouch(v: View, event: MotionEvent): Boolean {
         when (event.actionMasked) {

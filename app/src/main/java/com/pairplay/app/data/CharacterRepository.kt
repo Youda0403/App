@@ -7,6 +7,8 @@ import android.net.Uri
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.pairplay.app.R
+import com.pairplay.app.engine.Expression
+import com.pairplay.app.engine.ExpressionSlots
 import com.pairplay.app.image.ImageImporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -62,10 +64,62 @@ class CharacterRepository(private val context: Context) {
         characterDao.update(character)
     }
 
+    /**
+     * 표정 하나에 쓸 그림을 등록한다.
+     * 기존 캐릭터 그림과 똑같이 여백을 잘라 내고 앱 저장소로 들여온다.
+     */
+    suspend fun setExpressionImage(
+        characterId: Long,
+        expression: Expression,
+        uri: Uri
+    ): AddResult = withContext(Dispatchers.IO) {
+        val character = characterDao.getById(characterId)
+            ?: return@withContext AddResult.Failed(ImageImporter.Reason.UNREADABLE)
+
+        val key = "face_${characterId}_${expression.id}_${System.currentTimeMillis()}"
+        when (val result = ImageImporter.import(context, uri, key)) {
+            is ImageImporter.Result.Failure -> AddResult.Failed(result.reason)
+            is ImageImporter.Result.Success -> {
+                val previous = ExpressionSlots.parse(character.animationSlots)[expression]
+                characterDao.update(
+                    character.copy(
+                        animationSlots = ExpressionSlots.with(
+                            character.animationSlots,
+                            expression,
+                            result.imagePath
+                        )
+                    )
+                )
+                // 바꿔 끼운 뒤에 지운다. 먼저 지우면 저장에 실패했을 때 둘 다 잃는다.
+                ImageImporter.deleteFiles(previous, result.originalPath)
+                AddResult.Added(characterId)
+            }
+        }
+    }
+
+    /** 등록해 둔 표정 그림을 지운다. 그 표정은 다시 기본 그림으로 돌아간다. */
+    suspend fun clearExpressionImage(
+        characterId: Long,
+        expression: Expression
+    ) = withContext(Dispatchers.IO) {
+        val character = characterDao.getById(characterId) ?: return@withContext
+        val previous = ExpressionSlots.parse(character.animationSlots)[expression]
+        characterDao.update(
+            character.copy(
+                animationSlots = ExpressionSlots.with(character.animationSlots, expression, null)
+            )
+        )
+        ImageImporter.deleteFiles(previous)
+    }
+
     suspend fun deleteCharacter(character: CharacterEntity) = withContext(Dispatchers.IO) {
         pairDao.deleteReferencing(character.id)
         characterDao.delete(character)
         ImageImporter.deleteFiles(character.imagePath, character.originalImagePath)
+        // 등록해 둔 표정 그림도 함께 지운다. 안 지우면 저장 공간에 남는다.
+        ImageImporter.deleteFiles(
+            *ExpressionSlots.parse(character.animationSlots).values.toTypedArray()
+        )
     }
 
     suspend fun characterCount(): Int = withContext(Dispatchers.IO) { characterDao.count() }

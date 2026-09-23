@@ -14,6 +14,7 @@ import com.pairplay.app.data.PairEntity
 import com.pairplay.app.data.RelationshipDirection
 import com.pairplay.app.data.RelationshipType
 import com.pairplay.app.engine.CharacterAction
+import com.pairplay.app.engine.Expression
 import com.pairplay.app.image.ImageImporter
 import com.pairplay.app.music.MusicWatcher
 import com.pairplay.app.overlay.OverlayService
@@ -142,6 +143,27 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
 
     fun updateCharacter(character: CharacterEntity) {
         viewModelScope.launch { repository.updateCharacter(character) }
+    }
+
+    /** 표정 하나에 쓸 그림을 등록한다. */
+    fun setExpressionImage(characterId: Long, expression: Expression, uri: Uri) {
+        viewModelScope.launch {
+            when (val result = repository.setExpressionImage(characterId, expression, uri)) {
+                is CharacterRepository.AddResult.Added ->
+                    message.value = "${expression.label} 을(를) 등록했어요."
+
+                is CharacterRepository.AddResult.Failed ->
+                    message.value = describe(result.reason)
+            }
+        }
+    }
+
+    /** 등록해 둔 표정 그림을 지운다. */
+    fun clearExpressionImage(characterId: Long, expression: Expression) {
+        viewModelScope.launch {
+            repository.clearExpressionImage(characterId, expression)
+            message.value = "${expression.label} 을(를) 기본 그림으로 되돌렸어요."
+        }
     }
 
     fun deleteCharacter(character: CharacterEntity) {

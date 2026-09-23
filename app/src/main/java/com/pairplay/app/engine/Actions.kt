@@ -164,20 +164,6 @@ object PoseCalculator {
         )
     }
 
-    /**
-     * 매달린 몸이 좌우로 밀려나는 양(px).
-     *
-     * 캐릭터는 발밑을 기준으로 회전한다. 그대로 두면 머리가 흔들려서
-     * '기울어졌다'로만 보인다. 손가락에 매달린 모습은 반대다. 머리는 손가락
-     * 아래에 붙어 있고 몸이 흔들려야 한다.
-     * 그래서 회전으로 머리가 밀려난 만큼 창을 반대로 옮겨, 회전 기준을
-     * 머리 쪽으로 옮긴 것과 같은 그림을 만든다.
-     */
-    fun dangleShiftX(swingDeg: Float, heightPx: Float): Float {
-        val swing = swingDeg.coerceIn(-PoseBounds.MAX_ROTATION_DEG, PoseBounds.MAX_ROTATION_DEG)
-        return -heightPx * sin(Math.toRadians(swing.toDouble())).toFloat()
-    }
-
     private fun breathe(t: Float, seed: Float): Pose {
         val phase = (t + seed) * 2f * Math.PI.toFloat()
         val breath = sin(phase)

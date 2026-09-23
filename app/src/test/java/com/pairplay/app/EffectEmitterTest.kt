@@ -60,7 +60,10 @@ class EffectEmitterTest {
         for (time in 0..1500 step 50) {
             for (effect in emitter.render(time.toLong())) {
                 assertTrue("가로 위치가 벗어남: ${effect.xRatio}", effect.xRatio in 0f..1f)
-                assertTrue("세로 위치가 벗어남: ${effect.yRatio}", effect.yRatio in -0.01f..1.01f)
+                assertTrue(
+                    "세로 위치가 벗어남: ${effect.yRatio}",
+                    effect.yRatio in -0.01f..EffectEmitter.MAX_CLING_Y_RATIO + 0.01f
+                )
                 assertTrue("투명도가 벗어남: ${effect.alpha}", effect.alpha in 0f..1f)
                 assertTrue("크기가 이상함: ${effect.scale}", effect.scale > 0f && effect.scale < 3f)
             }
@@ -108,12 +111,12 @@ class EffectEmitterTest {
             val early = emitter.render(200L).first()
             val later = emitter.render(1_000L).first()
 
-            // 떠오르지 않고 캐릭터 쪽(아래)에 머문다.
-            assertTrue("$kind 가 위로 떠올랐습니다", early.yRatio > 0.7f)
-            assertTrue("$kind 가 위로 떠올랐습니다", later.yRatio > 0.7f)
+            // yRatio 1 이 머리 꼭대기다. 1 을 넘어야 캐릭터 그림 위에 얹힌다.
+            assertTrue("$kind 가 머리 위 허공에 떴습니다", early.yRatio > 1f)
+            assertTrue("$kind 가 머리 위 허공에 떴습니다", later.yRatio > 1f)
             assertTrue(
                 "$kind 가 제자리에 있지 않습니다",
-                kotlin.math.abs(later.yRatio - early.yRatio) < 0.1f
+                kotlin.math.abs(later.yRatio - early.yRatio) < 0.2f
             )
         }
     }

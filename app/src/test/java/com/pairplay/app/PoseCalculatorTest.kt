@@ -97,35 +97,6 @@ class PoseCalculatorTest {
         assertTrue(!CharacterAction.BUMP.loops)
     }
 
-    /**
-     * 사용자 피드백: "대롱대롱이 작동이 되는지 아닌지 모르겠어... 그냥 옮겨지는데?"
-     *
-     * 발밑을 기준으로 회전하면 머리가 흔들려서 '기울었다'로만 보인다.
-     * 손가락에 매달린 모습은 반대다. 머리는 손가락 아래에 붙어 있고 몸이 흔들려야 한다.
-     * 그래서 회전으로 머리가 밀려난 만큼 창을 반대로 밀어 준다.
-     */
-    @Test
-    fun `매달리면 몸이 눈에 띄게 밀려난다`() {
-        assertEquals(0f, PoseCalculator.dangleShiftX(0f, height), EPSILON)
-
-        // 기울어진 반대쪽으로 밀어야 머리가 제자리에 남는다.
-        assertTrue(PoseCalculator.dangleShiftX(10f, height) < 0f)
-        assertTrue(PoseCalculator.dangleShiftX(-10f, height) > 0f)
-
-        // 최대로 기울었을 때 캐릭터 키의 10% 는 넘게 밀려야 눈에 보인다.
-        val maxShift = kotlin.math.abs(
-            PoseCalculator.dangleShiftX(PoseBounds.MAX_ROTATION_DEG, height)
-        )
-        assertTrue("밀려나는 양이 너무 작습니다: $maxShift", maxShift > height * 0.1f)
-
-        // 약속 범위를 넘는 값을 넣어도 최대치를 넘지 않는다.
-        assertEquals(
-            maxShift,
-            kotlin.math.abs(PoseCalculator.dangleShiftX(120f, height)),
-            EPSILON
-        )
-    }
-
     /** 매달린 자세도 창 여백 약속을 넘지 않아야 한다. 넘으면 그림이 잘린다. */
     @Test
     fun `매달린 자세가 약속 범위를 지킨다`() {

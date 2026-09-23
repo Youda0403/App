@@ -1,7 +1,12 @@
 package com.pairplay.app.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -9,6 +14,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -24,7 +32,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.pairplay.app.data.CharacterEntity
+import com.pairplay.app.engine.Expression
+import com.pairplay.app.engine.ExpressionSlots
 import com.pairplay.app.ui.PairPlayUiState
 import com.pairplay.app.ui.PairPlayViewModel
 import kotlin.math.roundToInt
@@ -137,6 +148,8 @@ fun CharacterEditScreen(
                 ) { draft = editing.copy(flipHorizontal = it) }
             }
 
+            ExpressionSection(characterId, character ?: editing, viewModel)
+
             SectionCard("성격") {
                 Text(
                     "지금은 움직임 빈도에만 쓰여요. 다음 버전의 관계 엔진이 이 값을 함께 씁니다.",
@@ -161,11 +174,98 @@ fun CharacterEditScreen(
 
             Button(
                 onClick = {
-                    viewModel.updateCharacter(editing)
+                    // 표정 그림은 저장 버튼을 기다리지 않고 바로 반영된다.
+                    // 그래서 여기서 초안을 그대로 저장하면 그 사이 등록한 표정이
+                    // 옛날 값으로 덮여 지워진다. 표정만 최신 값을 가져와 붙인다.
+                    val slots = character?.animationSlots ?: editing.animationSlots
+                    viewModel.updateCharacter(editing.copy(animationSlots = slots))
                     onBack()
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("저장") }
         }
+    }
+}
+
+/**
+ * 표정별 그림 등록.
+ *
+ * 이미지 한 장으로는 표정을 바꿀 수 없어서, 웃는 얼굴·화난 얼굴 같은 그림을
+ * 따로 넣어 두면 기분에 맞춰 갈아 끼운다. 넣지 않은 표정은 기본 그림 그대로다.
+ *
+ * 저장 버튼을 기다리지 않고 바로 반영한다. 파일을 들여오는 일이라
+ * 이름·크기 같은 값과 함께 되돌리기 어렵기 때문이다.
+ */
+@Composable
+private fun ExpressionSection(
+    characterId: Long,
+    character: CharacterEntity,
+    viewModel: PairPlayViewModel
+) {
+    var target by remember { mutableStateOf(Expression.HAPPY) }
+    val pickImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) viewModel.setExpressionImage(characterId, target, uri)
+    }
+
+    val slots = ExpressionSlots.parse(character.animationSlots)
+
+    SectionCard("표정") {
+        Text(
+            "기분에 따라 그림을 바꿔 끼워요. 넣지 않은 표정은 기본 그림 그대로 나옵니다. " +
+                "하나도 안 넣어도 괜찮아요.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Expression.registerable.forEachIndexed { index, expression ->
+            if (index > 0) HorizontalDivider()
+            val path = slots[expression]
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ExpressionThumbnail(path)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(expression.label, style = MaterialTheme.typography.bodyMedium)
+                    Text(expression.hint, style = MaterialTheme.typography.bodySmall)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    OutlinedButton(onClick = {
+                        target = expression
+                        pickImage.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    }) { Text(if (path == null) "고르기" else "바꾸기") }
+                    if (path != null) {
+                        TextButton(onClick = {
+                            viewModel.clearExpressionImage(characterId, expression)
+                        }) { Text("지우기") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpressionThumbnail(path: String?) {
+    val file = path?.let { File(it) }
+    if (file == null || !file.exists()) {
+        Text(
+            "없음",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.size(44.dp).padding(top = 14.dp)
+        )
+    } else {
+        AsyncImage(
+            model = file,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(44.dp)
+        )
     }
 }

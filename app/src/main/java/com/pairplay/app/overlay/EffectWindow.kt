@@ -74,6 +74,16 @@ class EffectWindow(
         view.setUnitSize(px)
     }
 
+    /**
+     * 창 안에서 캐릭터 머리 꼭대기가 어디쯤인지(0~1).
+     *
+     * 떠오르는 기호는 이 선에서 출발해 위로 가고, 붙는 기호(땀)는 이 선보다
+     * 아래, 즉 캐릭터 그림 위에 얹힌다.
+     */
+    fun setHeadLineRatio(ratio: Float) {
+        view.setHeadLineRatio(ratio)
+    }
+
     /** 캐릭터 머리 위 중앙에 오도록 좌상단 위치를 정한다. */
     fun setPosition(x: Float, y: Float) {
         val nx = x.roundToInt()
@@ -146,10 +156,20 @@ private class EffectView(context: Context) : View(context) {
     /** 기호 하나의 기준 크기(px). 0 이면 창 크기에서 적당히 뽑아 쓴다. */
     private var unitSize = 0f
 
+    /** 창 안에서 캐릭터 머리 꼭대기가 있는 높이(0~1). */
+    private var headLineRatio = DEFAULT_HEAD_LINE
+
     fun setUnitSize(px: Float) {
         val value = px.coerceAtLeast(0f)
         if (unitSize == value) return
         unitSize = value
+        invalidate()
+    }
+
+    fun setHeadLineRatio(ratio: Float) {
+        val value = ratio.coerceIn(0.1f, 0.95f)
+        if (headLineRatio == value) return
+        headLineRatio = value
         invalidate()
     }
 
@@ -178,11 +198,22 @@ private class EffectView(context: Context) : View(context) {
         val marginX = maxSize * SIDE_EXTENT
 
         val bandWidth = (w - marginX * 2f).coerceAtLeast(1f)
-        val bandHeight = (h - marginTop - marginBottom).coerceAtLeast(1f)
+
+        // 캐릭터 머리 꼭대기 선. 여기가 세로 기준(yRatio = 1)이다.
+        val headY = h * headLineRatio
+        // 머리선 위로 떠오를 수 있는 높이와, 머리선 아래로 붙을 수 있는 깊이.
+        val riseSpan = (headY - marginTop).coerceAtLeast(1f)
+        val clingSpan = (h - marginBottom - headY).coerceAtLeast(1f)
 
         for (effect in effects) {
             val cx = marginX + bandWidth * effect.xRatio
-            val cy = marginTop + bandHeight * effect.yRatio
+            val cy = if (effect.yRatio <= 1f) {
+                // 0 이 가장 높은 곳, 1 이 머리 꼭대기.
+                marginTop + riseSpan * effect.yRatio
+            } else {
+                // 1 을 넘으면 캐릭터 그림 위로 내려온다.
+                headY + clingSpan * (effect.yRatio - 1f)
+            }
             val size = unit * effect.scale
             if (size <= 0.5f) continue
 
@@ -315,32 +346,82 @@ private class EffectView(context: Context) : View(context) {
         paint.style = Paint.Style.FILL
     }
 
-    /** 머쓱함: 물방울 하나. 캐릭터 그림 위에 붙어 흔들린다. */
+    /**
+     * 머쓱함: 물방울 하나. 캐릭터 그림 위에 붙어 흔들린다.
+     *
+     * 위는 뾰족하고 아래는 동그란 진짜 물방울 모양이다.
+     * 예전에는 위아래가 똑같이 뾰족한 나뭇잎 모양이라 물방울로 보이지 않았다.
+     */
     private fun drawSweat(canvas: Canvas, cx: Float, cy: Float, size: Float) {
+        val tip = size * 0.55f      // 뾰족한 꼭대기
+        val side = size * 0.34f     // 가장 불룩한 곳의 반지름
+        val belly = size * 0.16f    // 불룩한 곳의 높이
+        val bottom = size * 0.50f   // 동그란 바닥
+
         path.reset()
-        path.moveTo(cx, cy - size * 0.45f)
-        path.quadTo(cx + size * 0.38f, cy + size * 0.1f, cx, cy + size * 0.42f)
-        path.quadTo(cx - size * 0.38f, cy + size * 0.1f, cx, cy - size * 0.45f)
+        path.moveTo(cx, cy - tip)
+        // 꼭대기에서 오른쪽으로 벌어지며 내려온다.
+        path.cubicTo(
+            cx + size * 0.16f, cy - tip * 0.42f,
+            cx + side, cy - belly * 0.2f,
+            cx + side, cy + belly
+        )
+        // 아래쪽은 동그랗게.
+        path.cubicTo(
+            cx + side, cy + bottom * 0.86f,
+            cx + side * 0.6f, cy + bottom,
+            cx, cy + bottom
+        )
+        path.cubicTo(
+            cx - side * 0.6f, cy + bottom,
+            cx - side, cy + bottom * 0.86f,
+            cx - side, cy + belly
+        )
+        path.cubicTo(
+            cx - side, cy - belly * 0.2f,
+            cx - size * 0.16f, cy - tip * 0.42f,
+            cx, cy - tip
+        )
         path.close()
         canvas.drawPath(path, paint)
     }
 
-    /** 못마땅함: 핏대 모양의 네 갈래. */
+    /**
+     * 못마땅함: 💢 (핏대).
+     *
+     * 💢 는 가운데를 비우고 네 개의 굽은 핏대가 둘러선 모양이다.
+     * 예전에는 대각선 네 줄이 가운데서 만나는 그림이라 반짝임(✦)과 헷갈렸다.
+     */
     private fun drawAnger(canvas: Canvas, cx: Float, cy: Float, size: Float) {
-        val arm = size * 0.42f
-        val thickness = size * 0.13f
+        val wing = size * 0.30f     // 핏대 한 줄의 가로 길이(반쪽)
+        val near = size * 0.17f     // 줄 끝이 가운데에서 떨어진 거리
+        val tip = size * 0.46f      // 가장 불룩한 곳이 가운데에서 떨어진 거리
+
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = thickness
-        canvas.drawLine(cx - arm, cy - arm, cx + arm * 0.1f, cy - arm * 0.1f, paint)
-        canvas.drawLine(cx + arm, cy - arm, cx - arm * 0.1f, cy - arm * 0.1f, paint)
-        canvas.drawLine(cx - arm, cy + arm, cx + arm * 0.1f, cy + arm * 0.1f, paint)
-        canvas.drawLine(cx + arm, cy + arm, cx - arm * 0.1f, cy + arm * 0.1f, paint)
+        paint.strokeWidth = size * 0.15f
+        paint.strokeCap = Paint.Cap.ROUND
+
+        // 같은 모양을 90도씩 돌려 네 방향에 놓는다.
+        for (turn in 0 until 4) {
+            val save = canvas.save()
+            canvas.rotate(90f * turn, cx, cy)
+            path.reset()
+            path.moveTo(cx - wing, cy - near)
+            path.quadTo(cx, cy - tip, cx + wing, cy - near)
+            canvas.drawPath(path, paint)
+            canvas.restoreToCount(save)
+        }
+
         paint.style = Paint.Style.FILL
+        paint.strokeCap = Paint.Cap.BUTT
     }
 }
 
 /** 바깥에서 크기를 주지 않았을 때 쓰는 값. */
 private const val FALLBACK_UNIT_RATIO = 0.17f
+
+/** 머리선 위치를 알려 주지 않았을 때 쓰는 값. */
+private const val DEFAULT_HEAD_LINE = 0.6f
 
 /** 창에 견줘 이보다 큰 기호는 잘리므로 여기서 멈춘다. */
 private const val MAX_UNIT_RATIO = 0.3f
