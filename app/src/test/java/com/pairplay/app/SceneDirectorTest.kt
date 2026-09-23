@@ -26,8 +26,16 @@ import kotlin.random.Random
 class SceneDirectorTest {
 
     private companion object {
-        /** 기다리는 간격 때문에 생기는 오차를 감안한 여유. */
-        const val STUCK_SLACK_MS = 6_000L
+        /**
+         * 장면 길이에 더해 줄 여유.
+         *
+         * 장면이 시작돼도 상대가 하던 동작을 중간에 끊지는 않는다. 그래서 상대가
+         * 가장 긴 혼자 동작(졸기 6초)을 막 시작한 참이면 그만큼 첫 마디가 늦어진다.
+         * 거기에 기다리는 간격(0.4초) 한 칸을 더한 값이 실제 상한이다.
+         * 막으려는 것은 '장면이 영영 안 끝나는' 버그(45분을 붙잡고 있었다)이므로
+         * 이 정도 여유로도 충분히 잡힌다.
+         */
+        const val STUCK_SLACK_MS = 7_000L
     }
 
     private fun context(

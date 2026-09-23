@@ -123,8 +123,9 @@ fun OverlaySettingsScreen(
 
             SectionCard("기분 표시") {
                 LabeledSwitch(
-                    label = "머리 위 말풍선",
-                    description = "지금 무슨 기분인지 작은 기호로 알려 줘요. 둘이 주고받은 걸 알아보기 쉬워집니다.",
+                    label = "기분 기호",
+                    description = "놀라면 느낌표, 머쓱하면 땀처럼 지금 기분을 작은 기호로 알려 줘요. " +
+                        "둘이 주고받은 걸 알아보기 쉬워집니다.",
                     checked = settings.bubblesEnabled
                 ) { viewModel.setBubblesEnabled(it) }
                 LabeledSwitch(

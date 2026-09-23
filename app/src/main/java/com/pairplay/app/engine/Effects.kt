@@ -3,17 +3,51 @@ package com.pairplay.app.engine
 import kotlin.math.sin
 import kotlin.random.Random
 
-/** 캐릭터 위에 잠깐 떠오르는 작은 표시들. */
+/**
+ * 캐릭터 위에 잠깐 떠오르는 작은 표시들.
+ *
+ * 말풍선 대신 기호만 띄운다. 말풍선은 캐릭터보다 눈에 띄고, 두 캐릭터의
+ * 크기가 다르면 말풍선 크기까지 달라 보여 어수선했다.
+ */
 enum class EffectKind {
+    /** 좋아함, 애정 */
     HEART,
+
+    /** 음악 */
     NOTE,
+
+    /** 신남, 장난 */
     SPARKLE,
-    EXCLAIM
+
+    /** 놀람 */
+    EXCLAIM,
+
+    /** 궁금함 */
+    QUESTION,
+
+    /** 졸림, 잠 */
+    SLEEP,
+
+    /** 머쓱함. 캐릭터 얼굴 옆에 붙는다. */
+    SWEAT,
+
+    /** 못마땅함. 캐릭터 머리 위에 붙는다. */
+    ANGER
+}
+
+/** 표시가 움직이는 방식. */
+enum class EffectStyle {
+    /** 위로 떠오르며 사라진다. */
+    RISE,
+
+    /** 캐릭터에 붙어서 살짝 흔들리다 사라진다. 땀이나 핏대처럼. */
+    CLING
 }
 
 /** 떠 있는 표시 하나. 시간이 지나면 저절로 사라진다. */
 data class EffectParticle(
     val kind: EffectKind,
+    val style: EffectStyle,
     val startMs: Long,
     val durationMs: Long,
     /** 가로 시작 위치. 0 이 왼쪽 끝, 1 이 오른쪽 끝. */
@@ -35,7 +69,7 @@ data class RenderedEffect(
 )
 
 /**
- * 표시를 만들고 시간에 따라 위로 떠오르게 하는 계산기.
+ * 표시를 만들고 시간에 따라 움직이게 하는 계산기.
  * 그리기와 분리해 두어 단위 테스트로 확인할 수 있다.
  */
 class EffectEmitter(
@@ -47,7 +81,12 @@ class EffectEmitter(
 
     val hasActive: Boolean get() = particles.isNotEmpty()
 
-    fun spawn(kind: EffectKind, count: Int, nowMs: Long) {
+    fun spawn(
+        kind: EffectKind,
+        count: Int,
+        nowMs: Long,
+        style: EffectStyle = defaultStyleFor(kind)
+    ) {
         repeat(count.coerceIn(1, maxParticles)) { index ->
             if (particles.size >= maxParticles) {
                 // 가장 오래된 것을 밀어낸다. 무한정 쌓여 느려지지 않게 한다.
@@ -56,13 +95,22 @@ class EffectEmitter(
             particles.add(
                 EffectParticle(
                     kind = kind,
+                    style = style,
                     // 여러 개가 동시에 뜨면 겹쳐 보이므로 조금씩 늦게 띄운다.
                     startMs = nowMs + index * STAGGER_MS,
-                    durationMs = DURATION_MS + random.nextInt(0, 400),
-                    startXRatio = 0.5f + (random.nextFloat() - 0.5f) * 0.5f,
-                    swayRatio = (random.nextFloat() - 0.5f) * 0.28f,
-                    sizeRatio = 0.75f + random.nextFloat() * 0.5f,
-                    tiltDeg = (random.nextFloat() - 0.5f) * 36f
+                    durationMs = durationFor(style) + random.nextInt(0, 400),
+                    startXRatio = startXFor(style, random),
+                    swayRatio = if (style == EffectStyle.CLING) {
+                        0f
+                    } else {
+                        (random.nextFloat() - 0.5f) * 0.28f
+                    },
+                    sizeRatio = 0.85f + random.nextFloat() * 0.35f,
+                    tiltDeg = if (style == EffectStyle.CLING) {
+                        0f
+                    } else {
+                        (random.nextFloat() - 0.5f) * 36f
+                    }
                 )
             )
         }
@@ -84,21 +132,37 @@ class EffectEmitter(
             val elapsed = nowMs - particle.startMs
             if (elapsed < 0) continue
             val t = (elapsed.toFloat() / particle.durationMs).coerceIn(0f, 1f)
-
-            val sway = sin(t * 2f * Math.PI.toFloat()) * particle.swayRatio
-            out.add(
-                RenderedEffect(
-                    kind = particle.kind,
-                    xRatio = (particle.startXRatio + sway).coerceIn(0.05f, 0.95f),
-                    // 아래에서 위로 떠오른다.
-                    yRatio = 1f - t * 0.85f,
-                    alpha = alphaAt(t),
-                    scale = particle.sizeRatio * scaleAt(t),
-                    rotationDeg = particle.tiltDeg * t
-                )
-            )
+            out.add(renderOne(particle, t))
         }
         return out
+    }
+
+    private fun renderOne(particle: EffectParticle, t: Float): RenderedEffect = when (particle.style) {
+        EffectStyle.RISE -> {
+            val sway = sin(t * 2f * Math.PI.toFloat()) * particle.swayRatio
+            RenderedEffect(
+                kind = particle.kind,
+                xRatio = (particle.startXRatio + sway).coerceIn(0.05f, 0.95f),
+                // 아래에서 위로 떠오른다.
+                yRatio = 1f - t * 0.8f,
+                alpha = alphaAt(t),
+                scale = particle.sizeRatio * scaleAt(t),
+                rotationDeg = particle.tiltDeg * t
+            )
+        }
+
+        EffectStyle.CLING -> {
+            // 캐릭터에 붙어서 살짝 떨린다.
+            val bob = sin(t * 5f * Math.PI.toFloat()) * 0.02f
+            RenderedEffect(
+                kind = particle.kind,
+                xRatio = particle.startXRatio,
+                yRatio = (CLING_Y_RATIO + bob).coerceIn(0f, 1f),
+                alpha = alphaAt(t),
+                scale = particle.sizeRatio * scaleAt(t),
+                rotationDeg = 0f
+            )
+        }
     }
 
     private fun alphaAt(t: Float): Float = when {
@@ -121,10 +185,31 @@ class EffectEmitter(
         /**
          * [render] 가 돌려주는 scale 의 상한.
          * 그리는 쪽에서 표시가 창 밖으로 잘리지 않을 여백을 잡는 데 쓴다.
-         * (크기 0.75~1.25 에 튀어나오는 효과 1.15 를 곱한 값보다 조금 넉넉하게)
          */
         const val MAX_RENDER_SCALE = 1.45f
-        private const val DURATION_MS = 1_100L
+
+        /** 붙어 있는 표시가 놓이는 높이. 1 에 가까울수록 캐릭터 쪽이다. */
+        const val CLING_Y_RATIO = 0.82f
+
+        private const val RISE_DURATION_MS = 1_100L
+        private const val CLING_DURATION_MS = 1_500L
         private const val STAGGER_MS = 110L
+
+        /** 땀과 핏대는 캐릭터에 붙는다. 나머지는 떠오른다. */
+        fun defaultStyleFor(kind: EffectKind): EffectStyle = when (kind) {
+            EffectKind.SWEAT, EffectKind.ANGER -> EffectStyle.CLING
+            else -> EffectStyle.RISE
+        }
+
+        private fun durationFor(style: EffectStyle): Long = when (style) {
+            EffectStyle.RISE -> RISE_DURATION_MS
+            EffectStyle.CLING -> CLING_DURATION_MS
+        }
+
+        private fun startXFor(style: EffectStyle, random: Random): Float = when (style) {
+            // 붙는 표시는 얼굴 옆쪽 한자리에 고정한다.
+            EffectStyle.CLING -> 0.74f
+            EffectStyle.RISE -> 0.5f + (random.nextFloat() - 0.5f) * 0.5f
+        }
     }
 }

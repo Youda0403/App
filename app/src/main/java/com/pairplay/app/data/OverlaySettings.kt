@@ -42,7 +42,12 @@ data class OverlaySettings(
     /** 하트·음표 같은 표시를 띄울지. */
     val effectsEnabled: Boolean = true,
 
-    /** 머리 위 기분 표시(말풍선)를 띄울지. */
+    /**
+     * 머리 위 기분 기호(하트·느낌표·땀 등)를 띄울지.
+     *
+     * 예전에는 말풍선이었다. 이름(키)을 바꾸면 이미 저장된 설정이 초기화되므로
+     * 저장 이름은 그대로 두고 뜻만 바꿨다.
+     */
     val bubblesEnabled: Boolean = true,
 
     /**

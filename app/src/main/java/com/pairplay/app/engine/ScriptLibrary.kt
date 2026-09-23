@@ -451,18 +451,19 @@ object ScriptLibrary {
         val warmth = average(context.a.warmth, context.b?.warmth)
 
         // 나누는 수가 클수록 성격이 결과에 덜 드러난다.
-        // 두 캐릭터의 차이가 눈에 보이도록 영향을 키웠다.
+        // 기본 가중치가 10 안팎이므로 2 로 나누면 수치를 0/100 으로 몰았을 때
+        // 그 장면이 거의 안 나오거나 거의 그것만 나오는 수준까지 벌어진다.
         if (actions.any { it == CharacterAction.WALK || it == CharacterAction.JUMP }) {
-            weight += (energy - 50) / 3
+            weight += (energy - 50) / 2
         }
         if (actions.any { it == CharacterAction.SHY || it == CharacterAction.GLANCE }) {
-            weight += (shyness - 50) / 3
+            weight += (shyness - 50) / 2
         }
         if (actions.contains(CharacterAction.TEASE)) {
-            weight += (mischief - 50) / 3
+            weight += (mischief - 50) / 2
         }
         if (actions.any { it == CharacterAction.REST || it == CharacterAction.APPROACH }) {
-            weight += (warmth - 50) / 3
+            weight += (warmth - 50) / 2
         }
         return weight.coerceAtLeast(1)
     }

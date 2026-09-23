@@ -18,8 +18,8 @@ import com.pairplay.app.data.SceneTrigger
 import com.pairplay.app.engine.CharacterAction
 import com.pairplay.app.engine.EffectEmitter
 import com.pairplay.app.engine.EffectKind
+import com.pairplay.app.engine.MoodMapper
 import com.pairplay.app.engine.Pose
-import com.pairplay.app.engine.BubbleMapper
 import com.pairplay.app.engine.CharacterTraits
 import com.pairplay.app.engine.Performer
 import com.pairplay.app.engine.PoseCalculator
@@ -28,6 +28,7 @@ import com.pairplay.app.engine.SceneCodec
 import com.pairplay.app.engine.SceneDirector
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.random.Random
 
 /**
@@ -73,9 +74,23 @@ class OverlayController(
         /** 끌리는 속도(px/프레임). 매달려 흔들리는 정도를 정한다. */
         var dragVelocity: Float = 0f
 
-        /** 이번 동작에서 띄우기로 한 기분 표시. 동작이 시작할 때 한 번만 정한다. */
-        var bubble: com.pairplay.app.engine.BubbleSymbol? = null
-        var lastBubbleAt: Long = 0L
+        /**
+         * 매달렸을 때의 흔들림. 각도와 각속도를 함께 들고 있어야 손을 멈춰도
+         * 그네처럼 몇 번 더 흔들리다 잦아든다.
+         */
+        var swingDeg: Float = 0f
+        var swingVel: Float = 0f
+
+        /** 부딪혀 튕겨 나가는 속도(px/프레임). 0 에 가까워지면 멈춘다. */
+        var knockVX: Float = 0f
+        var knockVY: Float = 0f
+
+        /** 마지막으로 기분 기호를 띄운 시각. 너무 자주 띄우지 않으려고 본다. */
+        var lastMoodAt: Long = 0L
+
+        /** 쓰다듬기로 판정되기 직전 위치. 여기서 제자리로 부드럽게 돌아온다. */
+        var petReturnFromX: Float = 0f
+        var petReturnFromY: Float = 0f
 
         /** 이번 이동이 화면 가장자리에 막혀서 끝나는지. 끝나면 부딪히는 연출을 한다. */
         var willHitWall: Boolean = false
@@ -124,8 +139,18 @@ class OverlayController(
     /** 직전 프레임에 둘이 닿아 있었는지. 새로 닿는 순간에만 부딪히는 연출을 한다. */
     private var charactersTouching = false
 
-    /** 닿았을 때 서로 밀어낼 방향. 매 프레임 다시 정하지 않는다. */
+    /**
+     * 완전히 겹쳐서 밀어낼 방향을 알 수 없을 때만 쓰는 비상용 방향.
+     * 평소에는 두 기준점 사이의 실제 방향을 쓴다.
+     */
     private var separationDirection = 1f
+
+    /** 마지막으로 콩 부딪힌 시각. 경계에서 여러 번 연속으로 부딪히지 않게 한다. */
+    private var lastBumpAt = 0L
+
+    /** 직전 [shiftRuntime] 이 실제로 옮긴 양. 화면 끝에 막히면 부탁한 값보다 작다. */
+    private var lastShiftX = 0f
+    private var lastShiftY = 0f
 
     private var lastSceneName: String? = null
 
@@ -237,7 +262,7 @@ class OverlayController(
         if (previous.effectsEnabled && !newSettings.effectsEnabled) {
             forEachRuntime {
                 it.effects.clear()
-                it.effectWindow.setContent(emptyList(), null, 0f)
+                it.effectWindow.setContent(emptyList())
             }
         }
         if (previous.scalePercent != newSettings.scalePercent) {
@@ -365,6 +390,9 @@ class OverlayController(
             (widthPx * EFFECT_WIDTH_FACTOR).toInt().coerceAtLeast(MIN_EFFECT_SIZE_PX),
             (heightPx * EFFECT_HEIGHT_FACTOR).toInt().coerceAtLeast(MIN_EFFECT_SIZE_PX)
         )
+        // 기호 크기는 캐릭터 크기와 상관없이 둘이 똑같아야 한다.
+        // 창 크기에서 뽑아 쓰면 큰 쪽 기호만 커져서 짝이 맞지 않아 보인다.
+        runtime.effectWindow.setUnitSize(density * EFFECT_UNIT_DP)
     }
 
     /** 활발함 설정을 스케줄러에 반영한다. */
@@ -386,7 +414,7 @@ class OverlayController(
         if (hidden) {
             forEachRuntime {
                 it.effects.clear()
-                it.effectWindow.setContent(emptyList(), null, 0f)
+                it.effectWindow.setContent(emptyList())
             }
         }
     }
@@ -439,15 +467,39 @@ class OverlayController(
         runtimeA?.let { updateRuntime(it, now) }
         runtimeB?.let { updateRuntime(it, now) }
 
-        // 서로 겹치지 않게 조금씩 밀어낸다. 새로 닿으면 부딪히는 연출을 한다.
+        // 부딪혀 튕겨 나가는 중이면 그만큼 더 밀린다.
+        runtimeA?.let { applyKnockback(it) }
+        runtimeB?.let { applyKnockback(it) }
+
+        // 절대 겹치지 않게 밀어낸다. 새로 닿으면 콩 부딪히며 튕겨 나간다.
         resolveOverlap(now)
-        runtimeA?.window?.commit()
-        runtimeB?.window?.commit()
+
+        // 창을 실제로 옮기는 일은 한 프레임에 **여기 한 번**뿐이다.
+        // 위치를 정하는 도중에 옮기면(동작 계산 따로, 밀어내기 따로) 한 프레임에
+        // 창이 두 번 움직여 화면이 튄다.
+        runtimeA?.let {
+            it.window.commit()
+            syncEffectWindow(it, now)
+        }
+        runtimeB?.let {
+            it.window.commit()
+            syncEffectWindow(it, now)
+        }
     }
 
     private fun updateRuntime(runtime: Runtime, now: Long) {
         val elapsed = now - runtime.actionStart
         val duration = runtime.actionDuration.coerceAtLeast(1L)
+
+        // 쓰다듬기로 바뀌면 그 전에 조금 끌려간 만큼을 되돌린다.
+        // 한 번에 되돌리면 순간이동처럼 보이므로 짧게 미끄러져 제자리로 온다.
+        if (runtime.action == CharacterAction.PET && elapsed < PET_RETURN_MS) {
+            val k = easeInOut((elapsed.toFloat() / PET_RETURN_MS).coerceIn(0f, 1f))
+            runtime.window.setAnchor(
+                runtime.petReturnFromX + (runtime.heldAnchorX - runtime.petReturnFromX) * k,
+                runtime.petReturnFromY + (runtime.heldAnchorY - runtime.petReturnFromY) * k
+            )
+        }
 
         val progress: Float
         if (runtime.interactionHeld) {
@@ -465,14 +517,7 @@ class OverlayController(
         }
 
         if (runtime.action == CharacterAction.DANGLE) {
-            // 손가락에 매달려 흔들린다. 끌리는 속도만큼 몸이 뒤로 처진다.
-            // 손가락이 멈춰 있으면 속도가 0 으로 잦아들어 다시 그리지 않는다.
-            runtime.dragVelocity *= VELOCITY_DECAY
-            val swing = (-runtime.dragVelocity * SWING_PER_PX)
-                .coerceIn(-MAX_SWING_DEG, MAX_SWING_DEG)
-            val pose = PoseCalculator.danglePose(swing, runtime.displayHeight)
-            runtime.lastPose = pose
-            runtime.window.setPose(pose)
+            updateDangle(runtime, now)
         } else if (runtime.interactionHeld && runtime.action != CharacterAction.PET) {
             if (now - runtime.blendStart < BLEND_MS) {
                 val settle = blended(runtime, Pose.NEUTRAL, now)
@@ -490,6 +535,9 @@ class OverlayController(
             runtime.lastPose = pose
             runtime.window.setPose(pose)
         }
+        if (runtime.action != CharacterAction.DANGLE && runtime.window.swingShiftX != 0f) {
+            runtime.window.setSwingShiftX(0f)
+        }
         runtime.window.setFacingFactor(facingFactor(runtime, now))
         runtime.window.setLift(
             if (runtime.action == CharacterAction.JUMP) {
@@ -498,14 +546,44 @@ class OverlayController(
                 0f
             }
         )
-        // 위치와 점프 높이를 한 번에 반영한다.
-        runtime.window.commit()
-
-        syncEffectWindow(runtime, now)
+        // 여기서는 창을 옮기지 않는다. 밀어내기까지 다 끝난 뒤 tick 이 한 번에 옮긴다.
 
         if (!runtime.interactionHeld && progress >= 1f) {
             advanceAction(runtime, now)
         }
+    }
+
+    /**
+     * 손가락에 매달려 흔들리는 모습을 갱신한다.
+     *
+     * 예전에는 끌리는 속도를 그대로 기울기로 썼다. 그래서 아주 빠르게 끌지 않으면
+     * 기울기가 1~2도에 그쳐 '그냥 옮겨지는' 것과 구별이 되지 않았다. 지금은 세 가지를 바꿨다.
+     * 1. 그네처럼 움직인다. 목표 기울기를 향해 당겨지되 지나쳤다가 되돌아온다.
+     *    그래서 손을 멈춰도 몇 번 더 흔들리다 잦아든다.
+     * 2. 손가락이 가만히 있어도 아주 느리게 좌우로 흔들린다. 매달려 있다는 신호다.
+     * 3. 회전만으로는 '기울었다'로만 보이므로, 창을 반대로 밀어 머리가 손가락
+     *    아래에 머물고 몸이 흔들리게 한다.
+     */
+    private fun updateDangle(runtime: Runtime, now: Long) {
+        runtime.dragVelocity *= VELOCITY_DECAY
+
+        // 끌리는 속도만큼 몸이 뒤로 처지고, 멈춰 있어도 천천히 흔들린다.
+        val idleSway = kotlin.math.sin(now / IDLE_SWAY_PERIOD_MS * 2f * Math.PI.toFloat()) *
+            IDLE_SWAY_DEG
+        val target = (-runtime.dragVelocity * SWING_PER_PX + idleSway)
+            .coerceIn(-MAX_SWING_DEG, MAX_SWING_DEG)
+
+        runtime.swingVel =
+            (runtime.swingVel + (target - runtime.swingDeg) * SWING_STIFFNESS) * SWING_DAMPING
+        runtime.swingDeg = (runtime.swingDeg + runtime.swingVel)
+            .coerceIn(-MAX_SWING_DEG, MAX_SWING_DEG)
+
+        val pose = PoseCalculator.danglePose(runtime.swingDeg, runtime.displayHeight)
+        runtime.lastPose = pose
+        runtime.window.setPose(pose)
+        runtime.window.setSwingShiftX(
+            PoseCalculator.dangleShiftX(runtime.swingDeg, runtime.displayHeight)
+        )
     }
 
     /**
@@ -538,48 +616,33 @@ class OverlayController(
 
     private fun syncEffectWindow(runtime: Runtime, now: Long) {
         val rendered = runtime.effects.render(now)
-        val symbol = runtime.bubble
-        val alpha = if (symbol == null) 0f else bubbleAlpha(runtime, now)
-
-        runtime.effectWindow.setContent(rendered, symbol, alpha)
-        if (rendered.isEmpty() && alpha <= 0.02f) return
+        runtime.effectWindow.setContent(rendered)
+        if (rendered.isEmpty()) return
 
         val width = runtime.displayWidth * EFFECT_WIDTH_FACTOR
         val height = runtime.displayHeight * EFFECT_HEIGHT_FACTOR
+        // 창 아래쪽이 머리를 살짝 덮게 둔다. 그래야 기호가 바로 머리 위에서
+        // 떠오르고, 땀처럼 붙는 기호는 캐릭터 그림 위에 얹힌다.
         runtime.effectWindow.setPosition(
-            runtime.window.anchorX - width / 2f,
+            runtime.window.renderX - width / 2f,
             runtime.window.headTopY - height + runtime.displayHeight * EFFECT_OVERLAP_RATIO
         )
     }
 
     /**
-     * 이번 동작에 기분 표시를 띄울지 정한다.
+     * 이번 동작에 어울리는 기분 기호를 하나 띄운다.
      *
-     * 동작이 시작할 때 한 번만 정한다. 매 프레임 다시 따지면 같은 동작 안에서
-     * 표시가 깜빡인다. 연달아 띄우지 않도록 최소 간격도 여기서 본다.
+     * 말풍선을 씌우지 않는다. 말풍선은 캐릭터보다 커 보이고, 두 캐릭터의 크기가
+     * 다르면 말풍선 크기까지 달라 보여 어수선했다.
+     * 동작이 시작할 때 한 번만 띄운다. 매 프레임 따지면 같은 동작 안에서 깜빡인다.
+     * 연달아 띄우지 않도록 최소 간격도 여기서 본다.
      */
-    private fun decideBubble(
-        runtime: Runtime,
-        action: CharacterAction,
-        now: Long
-    ): com.pairplay.app.engine.BubbleSymbol? {
-        if (!settings.bubblesEnabled) return null
-        val candidate = BubbleMapper.forAction(action, runtime.currentScriptId != null)
-            ?: return null
-        if (now - runtime.lastBubbleAt < BubbleMapper.MIN_INTERVAL_MS) return null
-        runtime.lastBubbleAt = now
-        return candidate
-    }
-
-    /** 말풍선은 동작이 시작할 때 떠오르고 끝나기 직전에 사라진다. */
-    private fun bubbleAlpha(runtime: Runtime, now: Long): Float {
-        val elapsed = (now - runtime.actionStart).coerceAtLeast(0L)
-        val fadeIn = (elapsed.toFloat() / BUBBLE_FADE_IN_MS).coerceIn(0f, 1f)
-        if (runtime.interactionHeld) return fadeIn
-
-        val remaining = runtime.actionDuration - elapsed
-        val fadeOut = (remaining.toFloat() / BUBBLE_FADE_OUT_MS).coerceIn(0f, 1f)
-        return minOf(fadeIn, fadeOut)
+    private fun spawnMood(runtime: Runtime, action: CharacterAction, now: Long) {
+        if (!settings.bubblesEnabled) return
+        val kind = MoodMapper.forAction(action, runtime.currentScriptId != null) ?: return
+        if (now - runtime.lastMoodAt < MoodMapper.MIN_INTERVAL_MS) return
+        runtime.lastMoodAt = now
+        runtime.effects.spawn(kind, 1, now)
     }
 
     /** 방향을 바꾼다. 즉시 뒤집지 않고 몸을 돌리는 것처럼 보이게 한다. */
@@ -600,65 +663,157 @@ class OverlayController(
 
     // ---------------------------------------------------------------- 서로 겹치지 않기
 
-    /** 두 캐릭터가 이보다 가까워지면 겹쳐 보인다. */
-    private fun minSeparation(a: Runtime, b: Runtime): Float =
+    /**
+     * 두 캐릭터가 이보다 가까워지면 겹쳐 보이는 가로 간격.
+     * 세로는 [minSeparationY] 를 따로 쓴다. 사람은 가로로 붙는 것보다
+     * 위아래로 겹치는 것을 훨씬 크게 느끼기 때문이다.
+     */
+    private fun minSeparationX(a: Runtime, b: Runtime): Float =
         (a.displayWidth + b.displayWidth) * OVERLAP_GAP_RATIO
 
+    private fun minSeparationY(a: Runtime, b: Runtime): Float =
+        (a.displayHeight + b.displayHeight) * OVERLAP_GAP_Y_RATIO
+
     /**
-     * 둘이 겹치지 않게 조금씩 밀어내고, 새로 닿는 순간에는 부딪히는 연출을 한다.
-     * 붙잡혀 있는 쪽은 밀지 않는다. 손가락을 따라가야 하기 때문이다.
+     * 두 캐릭터가 절대 겹치지 않게 밀어낸다.
+     *
+     * 예전에는 가로 거리만 보고 한 프레임에 겹친 양의 20%만 밀었다. 그래서
+     * 손으로 겹쳐 놓으면 계속 겹친 채로 조금씩 밀려 덜덜 떨렸고, 밀어낼 방향을
+     * 한 번 정해 두었더니 거의 포개졌을 때 반대편으로 순간이동하는 것처럼 보였다.
+     *
+     * 지금은 가로·세로를 함께 보고, **겹친 만큼을 그 프레임에 전부 해소한다.**
+     * 방향은 매번 두 기준점 사이의 실제 방향에서 뽑는다. 거의 완전히 포개져
+     * 방향을 알 수 없을 때만 직전 방향을 쓴다.
      */
     private fun resolveOverlap(now: Long) {
         val a = runtimeA ?: return
         val b = runtimeB ?: return
         if (settings.mode != OverlayMode.PAIR) return
 
-        val gap = minSeparation(a, b)
-        val delta = b.window.anchorX - a.window.anchorX
-        val distance = abs(delta)
-        val touching = distance < gap
+        val gapX = minSeparationX(a, b)
+        val gapY = minSeparationY(a, b)
+        if (gapX <= 0f || gapY <= 0f) return
 
-        if (touching && !charactersTouching) {
-            onCharactersTouched(a, b, now)
-            // 밀어낼 방향은 닿는 순간 한 번만 정한다.
-            // 매 프레임 다시 정하면 거의 겹쳤을 때 좌우 부호가 뒤집히면서
-            // 캐릭터가 반대편으로 튕겨 다니는 것처럼 보인다.
-            separationDirection = if (delta >= 0f) 1f else -1f
+        // 가로세로 간격이 다르므로 각각을 1 로 놓은 좌표에서 거리를 잰다.
+        // 이 좌표에서 거리가 1 보다 작으면 겹친 것이다.
+        val nx = (b.window.anchorX - a.window.anchorX) / gapX
+        val ny = (b.window.anchorY - a.window.anchorY) / gapY
+        val distance = hypot(nx, ny)
+
+        val ux: Float
+        val uy: Float
+        if (distance < NEAR_ZERO) {
+            // 거의 포개져 방향을 알 수 없다. 직전에 밀던 방향으로 민다.
+            ux = separationDirection
+            uy = 0f
+        } else {
+            ux = nx / distance
+            uy = ny / distance
+            separationDirection = if (ux >= 0f) 1f else -1f
+        }
+
+        // 닿았다/떨어졌다를 다른 기준으로 본다. 기준이 하나뿐이면 경계에서
+        // 붙었다 떨어졌다가 반복되어 부딪히는 연출이 계속 터지고 화면이 튄다.
+        val touching = if (charactersTouching) distance < TOUCH_RELEASE else distance < 1f
+        if (touching && !charactersTouching && now - lastBumpAt > BUMP_INTERVAL_MS) {
+            lastBumpAt = now
+            onCharactersTouched(a, b, now, ux, uy)
         }
         charactersTouching = touching
-        if (!touching) return
 
-        // 사용자가 일부러 붙여 놓는 중이면 밀어내지 않는다.
-        // 손가락과 밀어내는 힘이 서로 잡아당기면 화면이 심하게 튄다.
-        if (a.interactionHeld || b.interactionHeld) return
+        if (distance >= 1f) return
 
-        val direction = separationDirection
-        val overlap = (gap - distance) * SEPARATION_STEP
+        // 겹친 만큼을 실제 화면 거리로 되돌린다.
+        val overlap = 1f - distance
+        val pushX = ux * overlap * gapX
+        val pushY = uy * overlap * gapY
 
-        if (!a.interactionHeld) {
-            a.window.setAnchor(
-                clampX(a.window.anchorX - direction * overlap, a),
-                a.window.anchorY
-            )
-        }
-        if (!b.interactionHeld) {
-            b.window.setAnchor(
-                clampX(b.window.anchorX + direction * overlap, b),
-                b.window.anchorY
-            )
+        val aFree = !a.interactionHeld
+        val bFree = !b.interactionHeld
+        when {
+            // 둘 다 손에 잡혀 있으면 사용자가 일부러 붙여 놓은 것이다. 건드리지 않는다.
+            !aFree && !bFree -> return
+            // 한쪽이 잡혀 있으면 자유로운 쪽이 통째로 비켜 준다.
+            !aFree -> shiftRuntime(b, pushX, pushY)
+            !bFree -> shiftRuntime(a, -pushX, -pushY)
+            else -> {
+                shiftRuntime(a, -pushX / 2f, -pushY / 2f)
+                // a 가 화면 끝에 막혀 못 비킨 만큼은 b 가 대신 더 비켜 준다.
+                // 이게 없으면 벽에 몰렸을 때 둘이 겹친 채로 남는다.
+                shiftRuntime(b, pushX + lastShiftX, pushY + lastShiftY)
+            }
         }
     }
 
-    /** 방금 닿았다. 서로 놀라며 콩 부딪힌다. */
-    private fun onCharactersTouched(a: Runtime, b: Runtime, now: Long) {
+    /**
+     * 캐릭터를 옮긴다. 걷는 중이면 목적지도 같이 옮겨야 한다.
+     * 목적지를 그대로 두면 다음 프레임에 원래 자리로 끌려가 덜덜 떨린다.
+     *
+     * 실제로 옮겨진 양은 [lastShiftX], [lastShiftY] 에 남긴다. 화면 끝에 막혀
+     * 부탁한 만큼 못 갔을 수 있어서, 부르는 쪽이 그 차이를 알아야 한다.
+     */
+    private fun shiftRuntime(runtime: Runtime, dx: Float, dy: Float) {
+        lastShiftX = 0f
+        lastShiftY = 0f
+        if (dx == 0f && dy == 0f) return
+        val fromX = runtime.window.anchorX
+        val fromY = runtime.window.anchorY
+        val toX = clampX(fromX + dx, runtime)
+        val toY = clampY(fromY + dy)
+        val movedX = toX - fromX
+        val movedY = toY - fromY
+        if (movedX == 0f && movedY == 0f) return
+
+        runtime.window.setAnchor(toX, toY)
+        runtime.walkFromX += movedX
+        runtime.walkToX += movedX
+        runtime.walkFromY += movedY
+        runtime.walkToY += movedY
+        lastShiftX = movedX
+        lastShiftY = movedY
+    }
+
+    /** 부딪혀 튕겨 나가는 중이면 그만큼 더 밀린다. 점점 느려지다 멈춘다. */
+    private fun applyKnockback(runtime: Runtime) {
+        if (runtime.interactionHeld) {
+            runtime.knockVX = 0f
+            runtime.knockVY = 0f
+            return
+        }
+        if (abs(runtime.knockVX) < KNOCK_MIN_PX && abs(runtime.knockVY) < KNOCK_MIN_PX) {
+            runtime.knockVX = 0f
+            runtime.knockVY = 0f
+            return
+        }
+        shiftRuntime(runtime, runtime.knockVX, runtime.knockVY)
+        runtime.knockVX *= KNOCK_DECAY
+        runtime.knockVY *= KNOCK_DECAY
+    }
+
+    /**
+     * 방금 닿았다. 서로 놀라며 콩 부딪히고 통 튕겨 나간다.
+     * [ux], [uy] 는 A 에서 B 를 향하는 방향이다.
+     */
+    private fun onCharactersTouched(a: Runtime, b: Runtime, now: Long, ux: Float, uy: Float) {
         spawnEffect(a, EffectKind.EXCLAIM, 1, now)
         spawnEffect(b, EffectKind.EXCLAIM, 1, now)
 
         faceTo(a, b.window.anchorX >= a.window.anchorX, now)
         faceTo(b, a.window.anchorX >= b.window.anchorX, now)
 
-        if (!a.interactionHeld) startAction(a, CharacterAction.BUMP, now)
-        if (!b.interactionHeld) startAction(b, CharacterAction.BUMP, now)
+        // 튕겨 나가는 세기는 캐릭터 크기에 비례시킨다. 큰 캐릭터가 조금만
+        // 밀려나면 부딪힌 티가 나지 않는다.
+        val impulse = (a.displayWidth + b.displayWidth) * KNOCK_IMPULSE_RATIO
+        if (!a.interactionHeld) {
+            a.knockVX = -ux * impulse
+            a.knockVY = -uy * impulse * KNOCK_VERTICAL_FACTOR
+            startAction(a, CharacterAction.BUMP, now)
+        }
+        if (!b.interactionHeld) {
+            b.knockVX = ux * impulse
+            b.knockVY = uy * impulse * KNOCK_VERTICAL_FACTOR
+            startAction(b, CharacterAction.BUMP, now)
+        }
     }
 
     /** 둘이 충분히 가까우면 '마주쳤을 때' 장면을 시작해 본다. */
@@ -668,8 +823,12 @@ class OverlayController(
         if (settings.mode != OverlayMode.PAIR) return
         if (a.interactionHeld || b.interactionHeld) return
 
-        val distance = abs(b.window.anchorX - a.window.anchorX)
-        if (distance > minSeparation(a, b) * MEET_DISTANCE_FACTOR) return
+        val gapX = minSeparationX(a, b)
+        val gapY = minSeparationY(a, b)
+        if (gapX <= 0f || gapY <= 0f) return
+        val nx = (b.window.anchorX - a.window.anchorX) / gapX
+        val ny = (b.window.anchorY - a.window.anchorY) / gapY
+        if (hypot(nx, ny) > MEET_DISTANCE_FACTOR) return
 
         if (director.onTrigger(SceneTrigger.CHARACTERS_MET, now)) {
             applyDirection(a, now)
@@ -723,7 +882,12 @@ class OverlayController(
         runtime.action = action
         runtime.actionStart = now
         runtime.actionDuration = if (durationMs > 0L) durationMs else action.defaultDurationMs
-        runtime.bubble = decideBubble(runtime, action, now)
+        spawnMood(runtime, action, now)
+
+        if (action == CharacterAction.DANGLE) {
+            runtime.swingDeg = 0f
+            runtime.swingVel = 0f
+        }
 
         when (action) {
             CharacterAction.WALK -> setupWalk(runtime, now)
@@ -748,8 +912,11 @@ class OverlayController(
         runtime.walkFromX = runtime.window.anchorX
         runtime.walkToX = clamped
 
-        // 좌우로만 왔다 갔다 하면 단조롭다. 위아래로도 조금씩 자리를 옮긴다.
-        val drift = screenHeight * VERTICAL_DRIFT_RATIO * settings.activity
+        // 좌우로만 왔다 갔다 하면 만날 일이 없다. 위아래로도 눈에 띄게 자리를 옮긴다.
+        // 활동적인 캐릭터일수록 더 크게 움직인다.
+        val energy = runtime.entity.traitEnergy.coerceIn(0, 100) / 100f
+        val drift = screenHeight * VERTICAL_DRIFT_RATIO *
+            (0.4f + 0.6f * settings.activity) * (0.6f + 0.8f * energy)
         runtime.walkFromY = runtime.window.anchorY
         runtime.walkToY = clampY(runtime.window.anchorY + (Random.nextFloat() - 0.5f) * 2f * drift)
 
@@ -758,26 +925,47 @@ class OverlayController(
         runtime.willHitWall = abs(desired - clamped) > WALL_TOLERANCE_PX
     }
 
+    /**
+     * 상대에게 다가간다.
+     *
+     * 예전에는 가로로만 다가갔다. 그래서 둘이 위아래로 떨어져 있으면 영영 만나지
+     * 못하고 각자 옆으로만 걸어 다녔다. 지금은 가로세로 모두 상대 쪽으로 간다.
+     */
     private fun setupApproach(runtime: Runtime, now: Long) {
         val other = otherOf(runtime)
         runtime.walkFromX = runtime.window.anchorX
         runtime.walkFromY = runtime.window.anchorY
-        runtime.walkToY = runtime.window.anchorY
         runtime.willHitWall = false
-        runtime.walkToX = if (other != null) {
-            // 서로 밀어내는 최소 간격보다 살짝 넓게 선다. 그래야 다가간 뒤에
-            // 밀려나며 덜컥거리지 않는다.
-            val gap = minSeparation(runtime, other) * APPROACH_GAP_FACTOR
-            val target = if (other.window.anchorX >= runtime.window.anchorX) {
-                other.window.anchorX - gap
-            } else {
-                other.window.anchorX + gap
-            }
-            clampX(target, runtime)
-        } else {
-            runtime.window.anchorX
+
+        if (other == null) {
+            runtime.walkToX = runtime.window.anchorX
+            runtime.walkToY = runtime.window.anchorY
+            return
         }
-        faceTo(runtime, runtime.walkToX >= runtime.walkFromX, now)
+
+        // 서로 밀어내는 최소 간격보다 살짝 넓게 선다. 그래야 다가간 뒤에
+        // 밀려나며 덜컥거리지 않는다.
+        val gapX = minSeparationX(runtime, other) * APPROACH_GAP_FACTOR
+        val gapY = minSeparationY(runtime, other) * APPROACH_GAP_FACTOR
+
+        // 상대에서 나를 향하는 방향으로, 딱 간격만큼 떨어진 자리에 선다.
+        val nx = if (gapX > 0f) (runtime.window.anchorX - other.window.anchorX) / gapX else 0f
+        val ny = if (gapY > 0f) (runtime.window.anchorY - other.window.anchorY) / gapY else 0f
+        val distance = hypot(nx, ny)
+        val ux: Float
+        val uy: Float
+        if (distance < NEAR_ZERO) {
+            ux = separationDirection
+            uy = 0f
+        } else {
+            ux = nx / distance
+            uy = ny / distance
+        }
+
+        runtime.walkToX = clampX(other.window.anchorX + ux * gapX, runtime)
+        runtime.walkToY = clampY(other.window.anchorY + uy * gapY)
+        // 다 가서는 상대를 바라본다.
+        faceTo(runtime, other.window.anchorX >= runtime.walkToX, now)
     }
 
     private fun isNearEdge(runtime: Runtime): Boolean {
@@ -841,6 +1029,8 @@ class OverlayController(
         val runtime = runtimeOf(slot) ?: return
         val now = System.currentTimeMillis()
         runtime.interactionHeld = true
+        runtime.knockVX = 0f
+        runtime.knockVY = 0f
         // 기준 좌표는 손가락이 닿을 때 이미 잡아 두었다.
         // 한쪽을 붙잡으면 둘이 맞춰 가던 장면을 이어갈 수 없다.
         director.abandonCurrentScript()
@@ -849,6 +1039,8 @@ class OverlayController(
         if (settings.linkedDrag) {
             otherOf(runtime)?.let { other ->
                 other.interactionHeld = true
+                other.knockVX = 0f
+                other.knockVY = 0f
                 grab(other, rawX, rawY)
                 startAction(other, CharacterAction.DANGLE, now)
             }
@@ -880,8 +1072,12 @@ class OverlayController(
         val runtime = runtimeOf(slot) ?: return
         val now = System.currentTimeMillis()
         // 쓰다듬기로 판정되기 전까지 조금 끌려간 만큼을 되돌린다.
-        runtime.window.setAnchor(runtime.heldAnchorX, runtime.heldAnchorY)
-        runtime.window.commit()
+        // 한 번에 되돌리면 순간이동처럼 보이므로 출발점만 기억해 두고,
+        // updateRuntime 이 짧게 미끄러뜨려 제자리로 돌려놓는다.
+        runtime.petReturnFromX = runtime.window.anchorX
+        runtime.petReturnFromY = runtime.window.anchorY
+        runtime.knockVX = 0f
+        runtime.knockVY = 0f
         runtime.interactionHeld = true
         director.abandonCurrentScript()
         startAction(runtime, CharacterAction.PET, now)
@@ -901,6 +1097,11 @@ class OverlayController(
         forEachRuntime { runtime ->
             if (runtime.interactionHeld) {
                 runtime.interactionHeld = false
+                // 매달려 밀려 있던 만큼을 되돌린다. 남겨 두면 놓는 순간
+                // 캐릭터가 옆으로 치우친 채 서 있게 된다.
+                runtime.window.setSwingShiftX(0f)
+                runtime.swingDeg = 0f
+                runtime.swingVel = 0f
                 startAction(runtime, CharacterAction.IDLE, now)
             }
         }
@@ -986,16 +1187,41 @@ class OverlayController(
         private const val MAX_WALK_RATIO = 0.38f
 
         /** 걸을 때 위아래로 움직이는 폭(화면 세로 대비). */
-        private const val VERTICAL_DRIFT_RATIO = 0.07f
+        private const val VERTICAL_DRIFT_RATIO = 0.18f
 
-        /** 두 캐릭터 사이 최소 간격(두 캐릭터 가로폭 합 대비). */
+        /** 두 캐릭터 사이 최소 가로 간격(두 캐릭터 가로폭 합 대비). */
         private const val OVERLAP_GAP_RATIO = 0.42f
+
+        /**
+         * 최소 세로 간격(두 캐릭터 키 합 대비).
+         * 가로보다 작게 잡는다. 위아래로 조금 어긋나 서 있는 건 자연스럽지만,
+         * 가로로 붙으면 곧바로 겹쳐 보이기 때문이다.
+         */
+        private const val OVERLAP_GAP_Y_RATIO = 0.18f
 
         /** 다가갈 때는 최소 간격보다 살짝 넓게 선다. */
         private const val APPROACH_GAP_FACTOR = 1.15f
 
-        /** 한 프레임에 밀어내는 정도. 한 번에 다 밀면 순간이동처럼 보인다. */
-        private const val SEPARATION_STEP = 0.2f
+        /** 떨어졌다고 볼 거리. 닿는 기준(1)보다 넉넉해야 경계에서 떨리지 않는다. */
+        private const val TOUCH_RELEASE = 1.2f
+
+        /** 이 시간 안에는 다시 부딪히지 않는다. */
+        private const val BUMP_INTERVAL_MS = 900L
+
+        /** 튕겨 나가는 세기(두 캐릭터 가로폭 합 대비, 프레임당 이동량). */
+        private const val KNOCK_IMPULSE_RATIO = 0.022f
+
+        /** 세로로는 덜 튕긴다. 위아래로 크게 날아가면 어색하다. */
+        private const val KNOCK_VERTICAL_FACTOR = 0.55f
+
+        /** 튕김이 잦아드는 속도. */
+        private const val KNOCK_DECAY = 0.86f
+
+        /** 이보다 느려지면 멈춘 것으로 본다(px/프레임). */
+        private const val KNOCK_MIN_PX = 0.3f
+
+        /** 방향을 뽑을 수 없을 만큼 가까운지 판단하는 값. */
+        private const val NEAR_ZERO = 0.001f
 
         /** 이 거리 안이면 '마주쳤다'고 본다. */
         private const val MEET_DISTANCE_FACTOR = 1.6f
@@ -1009,13 +1235,27 @@ class OverlayController(
         /** 손가락이 멈추면 흔들림이 잦아드는 속도. */
         private const val VELOCITY_DECAY = 0.88f
 
-        /** 1px 끌릴 때 몇 도나 기울지. */
-        private const val SWING_PER_PX = 0.35f
+        /**
+         * 1px 끌릴 때 몇 도나 기울지.
+         * 예전 값(0.35)으로는 아주 빠르게 끌어야 겨우 몇 도 기울어, 매달렸는지
+         * 그냥 옮겨지는지 구별이 되지 않았다.
+         */
+        private const val SWING_PER_PX = 1.2f
 
         private const val MAX_SWING_DEG = 12f
 
-        private const val BUBBLE_FADE_IN_MS = 180f
-        private const val BUBBLE_FADE_OUT_MS = 260f
+        /** 그네가 제자리로 당겨지는 힘. 클수록 빨리 따라간다. */
+        private const val SWING_STIFFNESS = 0.22f
+
+        /** 그네가 잦아드는 정도. 1 에 가까울수록 오래 흔들린다. */
+        private const val SWING_DAMPING = 0.9f
+
+        /** 손가락이 멈춰 있어도 이만큼은 계속 흔들린다. */
+        private const val IDLE_SWAY_DEG = 4f
+        private const val IDLE_SWAY_PERIOD_MS = 900f
+
+        /** 쓰다듬기로 바뀔 때 제자리로 미끄러져 돌아오는 시간. */
+        private const val PET_RETURN_MS = 180L
 
         private const val MIN_EAGERNESS = 0.25f
         private const val MAX_EAGERNESS = 0.95f
@@ -1033,7 +1273,15 @@ class OverlayController(
 
         private const val EFFECT_WIDTH_FACTOR = 1.9f
         private const val EFFECT_HEIGHT_FACTOR = 0.9f
-        private const val EFFECT_OVERLAP_RATIO = 0.12f
+
+        /**
+         * 표시 창 아래쪽이 캐릭터 머리를 덮는 정도(캐릭터 키 대비).
+         * 기호가 바로 머리 위에서 떠오르고, 땀처럼 붙는 기호는 그림 위에 얹힌다.
+         */
+        private const val EFFECT_OVERLAP_RATIO = 0.3f
         private const val MIN_EFFECT_SIZE_PX = 120
+
+        /** 기호 하나의 기준 크기(dp). 두 캐릭터가 같은 값을 써야 짝이 맞아 보인다. */
+        private const val EFFECT_UNIT_DP = 26f
     }
 }

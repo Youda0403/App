@@ -2,6 +2,7 @@ package com.pairplay.app
 
 import com.pairplay.app.engine.EffectEmitter
 import com.pairplay.app.engine.EffectKind
+import com.pairplay.app.engine.EffectStyle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,6 +88,41 @@ class EffectEmitterTest {
             }
         }
         assertTrue("검사한 표시가 하나도 없습니다", seen > 0)
+    }
+
+    /**
+     * 사용자 요청: 땀은 캐릭터 그림 위에 😓 처럼 붙어 있어야 한다.
+     * 하트처럼 떠올라 버리면 '머쓱해하는 중' 으로 읽히지 않는다.
+     */
+    @Test
+    fun `땀과 핏대는 캐릭터에 붙어 있는다`() {
+        for (kind in listOf(EffectKind.SWEAT, EffectKind.ANGER)) {
+            assertEquals(
+                "$kind 는 캐릭터에 붙어 있어야 합니다",
+                EffectStyle.CLING,
+                EffectEmitter.defaultStyleFor(kind)
+            )
+
+            val emitter = emitter()
+            emitter.spawn(kind, 1, 0L)
+            val early = emitter.render(200L).first()
+            val later = emitter.render(1_000L).first()
+
+            // 떠오르지 않고 캐릭터 쪽(아래)에 머문다.
+            assertTrue("$kind 가 위로 떠올랐습니다", early.yRatio > 0.7f)
+            assertTrue("$kind 가 위로 떠올랐습니다", later.yRatio > 0.7f)
+            assertTrue(
+                "$kind 가 제자리에 있지 않습니다",
+                kotlin.math.abs(later.yRatio - early.yRatio) < 0.1f
+            )
+        }
+    }
+
+    @Test
+    fun `하트와 느낌표는 떠오른다`() {
+        for (kind in listOf(EffectKind.HEART, EffectKind.EXCLAIM, EffectKind.NOTE)) {
+            assertEquals(EffectStyle.RISE, EffectEmitter.defaultStyleFor(kind))
+        }
     }
 
     @Test

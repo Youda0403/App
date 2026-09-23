@@ -297,7 +297,15 @@ class SceneDirector(
 
     /**
      * 장면이 돌고 있지 않을 때의 혼자 동작.
-     * 성격 수치로 빈도만 조절하고, 금지된 동작은 절대 고르지 않는다.
+     *
+     * 성격 수치는 두 가지로 드러난다.
+     * 1. **빈도**: 활동적이면 걷고 뛰는 쪽이, 조용하면 졸고 가만히 있는 쪽이 자주 나온다.
+     *    나누는 수를 줄여 차이가 눈에 보이게 했다.
+     * 2. **할 줄 아는 동작 자체**: 수치가 한쪽으로 뚜렷한 캐릭터만 하는 동작이 있다.
+     *    수줍은 아이만 몸을 움츠리고, 장난기 많은 아이만 툭 건드리고,
+     *    기가 센 아이만 상대를 노려본다. 그래야 둘의 성격 차이가 보인다.
+     *
+     * 금지된 동작은 어떤 경우에도 고르지 않는다. 사용자 설정이 우선이다.
      */
     private fun ambientAction(
         performer: Performer,
@@ -312,15 +320,29 @@ class SceneDirector(
             if (musical.isNotEmpty()) return musical.random(random)
         }
 
+        val hasPartner = context?.hasPartner == true
         val candidates = buildList {
-            add(CharacterAction.IDLE to 30)
-            add(CharacterAction.BREATHE to 25)
-            add(CharacterAction.WALK to 10 + traits.energy / 5)
-            add(CharacterAction.JUMP to 4 + traits.mischief / 8)
-            add(CharacterAction.DOZE to 6 + (100 - traits.energy) / 8)
-            if (nearEdge) add(CharacterAction.LEAN to 14)
-            if (context?.hasPartner == true) {
-                add(CharacterAction.LOOK_AT to 6 + traits.warmth / 10)
+            add(CharacterAction.IDLE to 16 + (100 - traits.energy) / 6)
+            add(CharacterAction.BREATHE to 16)
+            add(CharacterAction.WALK to 6 + traits.energy / 3)
+            add(CharacterAction.JUMP to 2 + traits.mischief / 5)
+            add(CharacterAction.DOZE to 2 + (100 - traits.energy) / 5)
+            if (nearEdge) add(CharacterAction.LEAN to 10 + traits.shyness / 8)
+            if (hasPartner) {
+                add(CharacterAction.LOOK_AT to 4 + traits.warmth / 8)
+                // 정이 많거나 적극적인 아이는 먼저 다가간다.
+                add(CharacterAction.APPROACH to 2 + traits.warmth / 7 + traits.assertiveness / 10)
+                // 아래는 수치가 뚜렷할 때만 나오는 '그 아이다운' 동작이다.
+                if (traits.shyness >= SHY_THRESHOLD) {
+                    add(CharacterAction.GLANCE to 3 + (traits.shyness - SHY_THRESHOLD) / 4)
+                    add(CharacterAction.SHY to 2 + (traits.shyness - SHY_THRESHOLD) / 6)
+                }
+                if (traits.mischief >= MISCHIEF_THRESHOLD) {
+                    add(CharacterAction.TEASE to 3 + (traits.mischief - MISCHIEF_THRESHOLD) / 4)
+                }
+                if (traits.assertiveness >= ASSERTIVE_THRESHOLD) {
+                    add(CharacterAction.GLARE to 2 + (traits.assertiveness - ASSERTIVE_THRESHOLD) / 5)
+                }
             }
         }.filter { traits.allows(it.first) }
 
@@ -346,5 +368,13 @@ class SceneDirector(
 
         /** 쉬는 시간이 왔을 때 장면을 시작할 기본 확률. 1 이면 쉴 틈 없이 장면만 돈다. */
         const val SCRIPT_START_CHANCE = 0.8f
+
+        /**
+         * 이 수치를 넘어야 그 성격다운 동작이 나온다.
+         * 50(보통)인 캐릭터는 하지 않고, 한쪽으로 뚜렷한 캐릭터만 한다.
+         */
+        const val SHY_THRESHOLD = 60
+        const val MISCHIEF_THRESHOLD = 60
+        const val ASSERTIVE_THRESHOLD = 65
     }
 }

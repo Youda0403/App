@@ -11,14 +11,17 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import com.pairplay.app.engine.BubbleSymbol
 import com.pairplay.app.engine.EffectEmitter
 import com.pairplay.app.engine.EffectKind
 import com.pairplay.app.engine.RenderedEffect
 import kotlin.math.roundToInt
 
 /**
- * 캐릭터 머리 위에 하트·음표와 기분 말풍선을 띄우는 창.
+ * 캐릭터 머리 위에 하트·느낌표 같은 작은 기호를 띄우는 창.
+ *
+ * 말풍선은 쓰지 않는다. 말풍선은 캐릭터보다 눈에 띄는 데다, 캐릭터 크기에 맞춰
+ * 그리면 두 캐릭터의 말풍선 크기까지 달라 보여 어수선했다. 기호만 띄우고
+ * 크기는 두 캐릭터가 똑같이 쓰도록 바깥에서 정해 준다.
  *
  * 캐릭터 창과 따로 두는 이유가 있다. 표시가 들어갈 자리를 캐릭터 창에 여백으로
  * 확보하면, 그 여백만큼 다른 앱의 터치를 가로채게 된다. 그래서 표시는
@@ -61,6 +64,16 @@ class EffectWindow(
         if (added) applyLayout()
     }
 
+    /**
+     * 기호 하나의 기준 크기(px).
+     *
+     * 창 크기에서 뽑아 쓰면 큰 캐릭터의 기호만 커진다. 두 캐릭터가 같은 크기로
+     * 보이도록 바깥에서 같은 값을 넣어 준다.
+     */
+    fun setUnitSize(px: Float) {
+        view.setUnitSize(px)
+    }
+
     /** 캐릭터 머리 위 중앙에 오도록 좌상단 위치를 정한다. */
     fun setPosition(x: Float, y: Float) {
         val nx = x.roundToInt()
@@ -73,17 +86,12 @@ class EffectWindow(
         if (added) applyLayout()
     }
 
-    /** 떠오르는 표시와 기분 말풍선을 한 번에 갱신한다. */
-    fun setContent(
-        effects: List<RenderedEffect>,
-        bubble: BubbleSymbol?,
-        bubbleAlpha: Float
-    ) {
-        val showBubble = bubble != null && bubbleAlpha > 0.02f
-        val shouldShow = effects.isNotEmpty() || showBubble
+    /** 지금 떠 있는 기호들을 갱신한다. */
+    fun setContent(effects: List<RenderedEffect>) {
+        val shouldShow = effects.isNotEmpty()
         if (!shouldShow && view.visibility == View.GONE) return
 
-        view.setContent(effects, if (showBubble) bubble else null, bubbleAlpha)
+        view.setContent(effects)
         view.visibility = if (shouldShow) View.VISIBLE else View.GONE
     }
 
@@ -126,25 +134,27 @@ class EffectWindow(
     }
 }
 
-/** 하트·음표와 기분 말풍선을 그리는 뷰. */
+/** 떠 있는 기호들을 그리는 뷰. */
 @SuppressLint("ViewConstructor")
 private class EffectView(context: Context) : View(context) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
 
-    /** 말풍선 몸통과 꼬리를 하나로 합칠 때 쓴다. */
-    private val bubblePath = Path()
-    private val tailPath = Path()
-
     private var effects: List<RenderedEffect> = emptyList()
-    private var bubble: BubbleSymbol? = null
-    private var bubbleAlpha: Float = 0f
 
-    fun setContent(effects: List<RenderedEffect>, bubble: BubbleSymbol?, bubbleAlpha: Float) {
+    /** 기호 하나의 기준 크기(px). 0 이면 창 크기에서 적당히 뽑아 쓴다. */
+    private var unitSize = 0f
+
+    fun setUnitSize(px: Float) {
+        val value = px.coerceAtLeast(0f)
+        if (unitSize == value) return
+        unitSize = value
+        invalidate()
+    }
+
+    fun setContent(effects: List<RenderedEffect>) {
         this.effects = effects
-        this.bubble = bubble
-        this.bubbleAlpha = bubbleAlpha
         invalidate()
     }
 
@@ -152,22 +162,17 @@ private class EffectView(context: Context) : View(context) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
-
-        drawRisingEffects(canvas, w, h)
-        drawBubble(canvas, w, h)
-    }
-
-    // ---------------------------------------------------------------- 떠오르는 표시
-
-    private fun drawRisingEffects(canvas: Canvas, w: Float, h: Float) {
         if (effects.isEmpty()) return
 
-        // 표시 하나의 기준 크기. 창의 짧은 변에 비례시켜 캐릭터 크기를 따라가게 한다.
-        val unit = minOf(w, h) * UNIT_RATIO
+        // 기호 하나의 기준 크기. 두 캐릭터가 같은 크기를 쓰도록 바깥에서 받는다.
+        // 창이 너무 작으면 잘리므로 창 크기 안으로 한 번 더 줄인다.
+        val fallback = minOf(w, h) * FALLBACK_UNIT_RATIO
+        val unit = (if (unitSize > 0f) unitSize else fallback)
+            .coerceAtMost(minOf(w, h) * MAX_UNIT_RATIO)
         val maxSize = unit * EffectEmitter.MAX_RENDER_SCALE
 
-        // 표시가 창 가장자리에서 잘리면 '투명한 선 위로 떠오르는' 것처럼 보인다.
-        // 가장 큰 표시가 통째로 들어갈 만큼 안쪽으로 밀어 넣고 그 안에서만 움직인다.
+        // 기호가 창 가장자리에서 잘리면 '투명한 선 위로 떠오르는' 것처럼 보인다.
+        // 가장 큰 기호가 통째로 들어갈 만큼 안쪽으로 밀어 넣고 그 안에서만 움직인다.
         val marginTop = maxSize * TOP_EXTENT
         val marginBottom = maxSize * BOTTOM_EXTENT
         val marginX = maxSize * SIDE_EXTENT
@@ -186,12 +191,7 @@ private class EffectView(context: Context) : View(context) {
 
             val save = canvas.save()
             canvas.rotate(effect.rotationDeg, cx, cy)
-            when (effect.kind) {
-                EffectKind.HEART -> drawHeart(canvas, cx, cy, size)
-                EffectKind.NOTE -> drawNote(canvas, cx, cy, size)
-                EffectKind.SPARKLE -> drawSparkle(canvas, cx, cy, size)
-                EffectKind.EXCLAIM -> drawExclaim(canvas, cx, cy, size)
-            }
+            drawSymbol(canvas, effect.kind, cx, cy, size)
             canvas.restoreToCount(save)
         }
     }
@@ -201,85 +201,22 @@ private class EffectView(context: Context) : View(context) {
         EffectKind.NOTE -> NOTE_COLOR
         EffectKind.SPARKLE -> SPARKLE_COLOR
         EffectKind.EXCLAIM -> EXCLAIM_COLOR
+        EffectKind.QUESTION -> INK_COLOR
+        EffectKind.SLEEP -> SLEEP_COLOR
+        EffectKind.SWEAT -> SWEAT_COLOR
+        EffectKind.ANGER -> ANGER_COLOR
     }
 
-    // ---------------------------------------------------------------- 기분 말풍선
-
-    /**
-     * 머리 위 한쪽에 작은 말풍선을 띄운다.
-     * 이미지 한 장으로는 표정을 바꿀 수 없어서, 지금 무슨 기분인지 이걸로 알린다.
-     */
-    private fun drawBubble(canvas: Canvas, w: Float, h: Float) {
-        val symbol = bubble ?: return
-        val alpha = bubbleAlpha.coerceIn(0f, 1f)
-        if (alpha <= 0.02f) return
-
-        val bubbleWidth = w * BUBBLE_WIDTH_RATIO
-        val bubbleHeight = bubbleWidth * BUBBLE_ASPECT
-        val cx = w * BUBBLE_CENTER_X
-        val cy = bubbleHeight * 0.5f + h * BUBBLE_TOP_MARGIN
-
-        val left = cx - bubbleWidth / 2f
-        val top = cy - bubbleHeight / 2f
-        val right = cx + bubbleWidth / 2f
-        val bottom = cy + bubbleHeight / 2f
-        val radius = bubbleHeight * 0.38f
-
-        // 몸통과 꼬리를 하나의 도형으로 합친다.
-        // 따로 그리면 꼬리에만 테두리가 빠져 어색하게 보인다.
-        bubblePath.reset()
-        bubblePath.addRoundRect(left, top, right, bottom, radius, radius, Path.Direction.CW)
-
-        val tailWidth = bubbleWidth * 0.2f
-        val tailX = left + bubbleWidth * 0.28f
-        tailPath.reset()
-        tailPath.moveTo(tailX, bottom - bubbleHeight * 0.2f)
-        tailPath.lineTo(tailX + tailWidth, bottom - bubbleHeight * 0.2f)
-        tailPath.lineTo(tailX + tailWidth * 0.15f, bottom + bubbleHeight * 0.34f)
-        tailPath.close()
-        bubblePath.op(tailPath, Path.Op.UNION)
-
-        paint.color = BUBBLE_FILL
-        paint.alpha = (alpha * 255).roundToInt()
-        paint.style = Paint.Style.FILL
-        canvas.drawPath(bubblePath, paint)
-
-        paint.color = BUBBLE_STROKE
-        paint.alpha = (alpha * 170).roundToInt()
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = bubbleHeight * 0.07f
-        canvas.drawPath(bubblePath, paint)
-        paint.style = Paint.Style.FILL
-
-        val size = bubbleHeight * 0.5f
-        paint.color = symbolColor(symbol)
-        paint.alpha = (alpha * 255).roundToInt()
-        drawSymbol(canvas, symbol, cx, cy, size)
-    }
-
-    private fun symbolColor(symbol: BubbleSymbol): Int = when (symbol) {
-        BubbleSymbol.HEART -> HEART_COLOR
-        BubbleSymbol.NOTE -> NOTE_COLOR
-        BubbleSymbol.SPARKLE -> SPARKLE_COLOR
-        BubbleSymbol.EXCLAIM -> EXCLAIM_COLOR
-        BubbleSymbol.QUESTION -> INK_COLOR
-        BubbleSymbol.SLEEP -> SLEEP_COLOR
-        BubbleSymbol.SWEAT -> SWEAT_COLOR
-        BubbleSymbol.ANGER -> ANGER_COLOR
-        BubbleSymbol.ELLIPSIS -> INK_COLOR
-    }
-
-    private fun drawSymbol(canvas: Canvas, symbol: BubbleSymbol, cx: Float, cy: Float, size: Float) {
-        when (symbol) {
-            BubbleSymbol.HEART -> drawHeart(canvas, cx, cy, size)
-            BubbleSymbol.NOTE -> drawNote(canvas, cx, cy, size)
-            BubbleSymbol.SPARKLE -> drawSparkle(canvas, cx, cy, size)
-            BubbleSymbol.EXCLAIM -> drawExclaim(canvas, cx, cy, size)
-            BubbleSymbol.QUESTION -> drawQuestion(canvas, cx, cy, size)
-            BubbleSymbol.SLEEP -> drawSleep(canvas, cx, cy, size)
-            BubbleSymbol.SWEAT -> drawSweat(canvas, cx, cy, size)
-            BubbleSymbol.ANGER -> drawAnger(canvas, cx, cy, size)
-            BubbleSymbol.ELLIPSIS -> drawEllipsis(canvas, cx, cy, size)
+    private fun drawSymbol(canvas: Canvas, kind: EffectKind, cx: Float, cy: Float, size: Float) {
+        when (kind) {
+            EffectKind.HEART -> drawHeart(canvas, cx, cy, size)
+            EffectKind.NOTE -> drawNote(canvas, cx, cy, size)
+            EffectKind.SPARKLE -> drawSparkle(canvas, cx, cy, size)
+            EffectKind.EXCLAIM -> drawExclaim(canvas, cx, cy, size)
+            EffectKind.QUESTION -> drawQuestion(canvas, cx, cy, size)
+            EffectKind.SLEEP -> drawSleep(canvas, cx, cy, size)
+            EffectKind.SWEAT -> drawSweat(canvas, cx, cy, size)
+            EffectKind.ANGER -> drawAnger(canvas, cx, cy, size)
         }
     }
 
@@ -378,7 +315,7 @@ private class EffectView(context: Context) : View(context) {
         paint.style = Paint.Style.FILL
     }
 
-    /** 머쓱함: 물방울 하나. */
+    /** 머쓱함: 물방울 하나. 캐릭터 그림 위에 붙어 흔들린다. */
     private fun drawSweat(canvas: Canvas, cx: Float, cy: Float, size: Float) {
         path.reset()
         path.moveTo(cx, cy - size * 0.45f)
@@ -400,18 +337,13 @@ private class EffectView(context: Context) : View(context) {
         canvas.drawLine(cx + arm, cy + arm, cx - arm * 0.1f, cy + arm * 0.1f, paint)
         paint.style = Paint.Style.FILL
     }
-
-    /** 말없이 쳐다보는 중: 점 세 개. */
-    private fun drawEllipsis(canvas: Canvas, cx: Float, cy: Float, size: Float) {
-        val r = size * 0.11f
-        val gap = size * 0.3f
-        canvas.drawCircle(cx - gap, cy, r, paint)
-        canvas.drawCircle(cx, cy, r, paint)
-        canvas.drawCircle(cx + gap, cy, r, paint)
-    }
 }
 
-private const val UNIT_RATIO = 0.17f
+/** 바깥에서 크기를 주지 않았을 때 쓰는 값. */
+private const val FALLBACK_UNIT_RATIO = 0.17f
+
+/** 창에 견줘 이보다 큰 기호는 잘리므로 여기서 멈춘다. */
+private const val MAX_UNIT_RATIO = 0.3f
 
 /** 표시가 중심에서 위로 뻗는 최대 비율 (하트가 가장 크다). */
 private const val TOP_EXTENT = 0.95f
@@ -421,12 +353,6 @@ private const val BOTTOM_EXTENT = 0.6f
 
 private const val SIDE_EXTENT = 0.6f
 
-/** 말풍선 크기. 캐릭터를 가리지 않도록 작게 잡는다. */
-private const val BUBBLE_WIDTH_RATIO = 0.24f
-private const val BUBBLE_ASPECT = 0.78f
-private const val BUBBLE_CENTER_X = 0.74f
-private const val BUBBLE_TOP_MARGIN = 0.05f
-
 private val HEART_COLOR = Color.parseColor("#FF6B8A")
 private val NOTE_COLOR = Color.parseColor("#7B5EA7")
 private val SPARKLE_COLOR = Color.parseColor("#F5A623")
@@ -435,5 +361,3 @@ private val INK_COLOR = Color.parseColor("#4A3B63")
 private val SLEEP_COLOR = Color.parseColor("#6E86C4")
 private val SWEAT_COLOR = Color.parseColor("#59B6D8")
 private val ANGER_COLOR = Color.parseColor("#E0503C")
-private val BUBBLE_FILL = Color.parseColor("#FFFDFB")
-private val BUBBLE_STROKE = Color.parseColor("#4A3B63")
