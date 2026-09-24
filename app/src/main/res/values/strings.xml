@@ -14,6 +14,8 @@
     <string name="widget_description">두 자캐와 지금 상황을 홈 화면에서 봐요</string>
     <string name="widget_character_a">첫 번째 캐릭터</string>
     <string name="widget_character_b">두 번째 캐릭터</string>
+    <string name="widget_hidden_by_app">💨 민감한 앱을 쓰는 동안 숨어 있어요</string>
+    <string name="widget_hidden_by_user">💨 잠깐 숨어 있어요</string>
     <string name="widget_no_character">캐릭터를 등록해 주세요</string>
     <string name="widget_idle">각자 지내는 중</string>
     <string name="widget_stopped">오버레이가 꺼져 있어요</string>

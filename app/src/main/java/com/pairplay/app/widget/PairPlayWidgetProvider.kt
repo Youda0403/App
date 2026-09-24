@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.os.SystemClock
 import android.util.Log
 import android.view.View
@@ -16,6 +18,7 @@ import com.pairplay.app.R
 import com.pairplay.app.data.CharacterEntity
 import com.pairplay.app.data.PairPlayDatabase
 import com.pairplay.app.overlay.OverlayService
+import com.pairplay.app.overlay.OverlayVisibility
 import com.pairplay.app.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +56,9 @@ class PairPlayWidgetProvider : AppWidgetProvider() {
 
         /** 위젯에 넣을 이미지의 최대 크기(px). 너무 크면 시스템이 거부한다. */
         private const val MAX_IMAGE_PX = 220
+
+        /** 숨어 있을 때 위젯 캐릭터를 그리는 진하기(0~255). */
+        private const val HIDDEN_ALPHA = 80
 
         /** 너무 자주 갱신하면 배터리만 먹는다. 최소 이 간격은 둔다. */
         private const val MIN_REFRESH_INTERVAL_MS = 20_000L
@@ -111,8 +117,12 @@ class PairPlayWidgetProvider : AppWidgetProvider() {
         ): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_pairplay)
 
-            bindCharacter(context, views, a, R.id.widget_image_a, R.id.widget_name_a)
-            bindCharacter(context, views, b, R.id.widget_image_b, R.id.widget_name_b)
+            // 숨어 있으면 위젯의 캐릭터도 흐릿하게 그려 '지금 숨어 있다' 는 걸 보여 준다.
+            val hidden = OverlayService.isRunning.value &&
+                OverlayService.visibility.value != OverlayVisibility.SHOWN
+
+            bindCharacter(context, views, a, R.id.widget_image_a, R.id.widget_name_a, hidden)
+            bindCharacter(context, views, b, R.id.widget_image_b, R.id.widget_name_b, hidden)
 
             views.setTextViewText(R.id.widget_status, statusText(context, a))
 
@@ -133,6 +143,12 @@ class PairPlayWidgetProvider : AppWidgetProvider() {
         private fun statusText(context: Context, a: CharacterEntity?): String = when {
             a == null -> context.getString(R.string.widget_no_character)
             !OverlayService.isRunning.value -> context.getString(R.string.widget_stopped)
+            OverlayService.visibility.value == OverlayVisibility.HIDDEN_BY_APP ->
+                context.getString(R.string.widget_hidden_by_app)
+
+            OverlayService.visibility.value == OverlayVisibility.HIDDEN_BY_USER ->
+                context.getString(R.string.widget_hidden_by_user)
+
             else -> OverlayService.currentScene.value
                 ?: context.getString(R.string.widget_idle)
         }
@@ -142,7 +158,8 @@ class PairPlayWidgetProvider : AppWidgetProvider() {
             views: RemoteViews,
             character: CharacterEntity?,
             imageId: Int,
-            nameId: Int
+            nameId: Int,
+            hidden: Boolean
         ) {
             if (character == null) {
                 views.setViewVisibility(imageId, View.GONE)
@@ -153,13 +170,28 @@ class PairPlayWidgetProvider : AppWidgetProvider() {
             views.setViewVisibility(nameId, View.VISIBLE)
             views.setTextViewText(nameId, character.name)
 
-            val bitmap = loadThumbnail(character.imagePath)
+            val loaded = loadThumbnail(character.imagePath)
+            val bitmap = if (hidden && loaded != null) faded(loaded) else loaded
             if (bitmap != null) {
                 views.setImageViewBitmap(imageId, bitmap)
             } else {
                 // 이미지를 못 읽어도 위젯 전체가 비지 않도록 기본 아이콘을 쓴다.
                 views.setImageViewResource(imageId, R.drawable.ic_launcher_foreground)
             }
+        }
+
+        /**
+         * 흐릿하게 만든 그림. 위젯에서 '숨어 있음' 을 나타낸다.
+         *
+         * 위젯 쪽 뷰의 투명도를 바꾸는 방법도 있지만, 위젯은 쓸 수 있는 기능이 정해져 있어
+         * 잘못 부르면 위젯 전체가 안 그려진다(검은 상자). 그래서 그림 자체를 흐리게 만든다.
+         */
+        private fun faded(source: Bitmap): Bitmap {
+            val out = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply { alpha = HIDDEN_ALPHA }
+            Canvas(out).drawBitmap(source, 0f, 0f, paint)
+            source.recycle()
+            return out
         }
 
         /**

@@ -8,6 +8,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.pairplay.app.ui.screens.AppRulesScreen
 import com.pairplay.app.ui.screens.CharacterEditScreen
 import com.pairplay.app.ui.screens.CharactersScreen
 import com.pairplay.app.ui.screens.HomeScreen
@@ -24,6 +25,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val SIZE_MATCH = "size_match"
     const val RELATIONSHIP = "relationship"
+    const val APP_RULES = "app_rules"
 
     fun characterEdit(id: Long) = "character/$id"
 }
@@ -101,6 +103,15 @@ fun PairPlayNavHost(viewModel: PairPlayViewModel) {
 
         composable(Routes.SETTINGS) {
             OverlaySettingsScreen(
+                state = state,
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenAppRules = { navController.navigate(Routes.APP_RULES) }
+            )
+        }
+
+        composable(Routes.APP_RULES) {
+            AppRulesScreen(
                 state = state,
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }

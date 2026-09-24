@@ -9,6 +9,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.pairplay.app.engine.AppCategory
+import com.pairplay.app.engine.AppRules
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -41,6 +43,15 @@ data class OverlaySettings(
 
     /** 흔들기·충전기·이어폰·잠금 해제에 반응할지. 추가 권한은 필요 없다. */
     val deviceReactionsEnabled: Boolean = true,
+
+    /**
+     * 지금 쓰는 앱에 반응할지. '사용 정보 접근' 권한이 있어야 실제로 동작한다.
+     * 은행·결제 앱에서 알아서 숨는 것도 여기에 포함된다.
+     */
+    val appAwarenessEnabled: Boolean = true,
+
+    /** 사용자가 앱별로 직접 정한 종류. `패키지=종류` 를 줄바꿈으로 구분한다. */
+    val appRules: String = "",
 
     /** 하트·음표 같은 표시를 띄울지. */
     val effectsEnabled: Boolean = true,
@@ -95,6 +106,8 @@ class OverlaySettingsStore(private val context: Context) {
         val LINKED_DRAG = booleanPreferencesKey("linked_drag")
         val MUSIC = booleanPreferencesKey("music_reaction")
         val DEVICE_REACTIONS = booleanPreferencesKey("device_reactions_enabled")
+        val APP_AWARENESS = booleanPreferencesKey("app_awareness_enabled")
+        val APP_RULES = stringPreferencesKey("app_rules")
         val EFFECTS = booleanPreferencesKey("effects_enabled")
         val BUBBLES = booleanPreferencesKey("bubbles_enabled")
         val ACTIVITY = intPreferencesKey("activity_percent")
@@ -117,6 +130,8 @@ class OverlaySettingsStore(private val context: Context) {
             linkedDrag = prefs[Keys.LINKED_DRAG] ?: defaults.linkedDrag,
             musicReactionEnabled = prefs[Keys.MUSIC] ?: defaults.musicReactionEnabled,
             deviceReactionsEnabled = prefs[Keys.DEVICE_REACTIONS] ?: defaults.deviceReactionsEnabled,
+            appAwarenessEnabled = prefs[Keys.APP_AWARENESS] ?: defaults.appAwarenessEnabled,
+            appRules = prefs[Keys.APP_RULES] ?: defaults.appRules,
             effectsEnabled = prefs[Keys.EFFECTS] ?: defaults.effectsEnabled,
             bubblesEnabled = prefs[Keys.BUBBLES] ?: defaults.bubblesEnabled,
             activityPercent = prefs[Keys.ACTIVITY] ?: defaults.activityPercent,
@@ -163,6 +178,16 @@ class OverlaySettingsStore(private val context: Context) {
 
     suspend fun setDeviceReactions(enabled: Boolean) =
         edit { it[Keys.DEVICE_REACTIONS] = enabled }
+
+    suspend fun setAppAwareness(enabled: Boolean) = edit { it[Keys.APP_AWARENESS] = enabled }
+
+    /**
+     * 한 앱의 종류를 직접 정한다. [category] 가 null 이면 기본값으로 되돌린다.
+     * 읽고 고치고 쓰는 일을 한 번에 해서, 여러 앱을 빠르게 바꿔도 서로 덮어쓰지 않는다.
+     */
+    suspend fun setAppRule(packageName: String, category: AppCategory?) = edit {
+        it[Keys.APP_RULES] = AppRules.with(it[Keys.APP_RULES] ?: "", packageName, category)
+    }
 
     suspend fun setActivityPercent(percent: Int) = edit {
         it[Keys.ACTIVITY] = percent.coerceIn(0, 100)

@@ -11,6 +11,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import com.pairplay.app.engine.PoofFrame
 import com.pairplay.app.engine.Pose
 import com.pairplay.app.engine.WindowPaddingCalculator
 import kotlin.math.abs
@@ -184,6 +185,11 @@ class CharacterWindow(
 
     fun setPose(pose: Pose) {
         view.pose = pose
+    }
+
+    /** 연기와 함께 사라지거나 나타나는 모습. null 이면 평소대로 그린다. */
+    fun setPoof(frame: PoofFrame?) {
+        view.poof = frame
     }
 
     /** -1(왼쪽) ~ +1(오른쪽). 중간값을 주면 몸을 돌리는 중으로 보인다. */

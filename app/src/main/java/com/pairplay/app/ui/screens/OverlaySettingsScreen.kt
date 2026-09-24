@@ -29,7 +29,8 @@ import com.pairplay.app.ui.PairPlayViewModel
 fun OverlaySettingsScreen(
     state: PairPlayUiState,
     viewModel: PairPlayViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenAppRules: () -> Unit
 ) {
     val launchers = rememberPermissionLaunchers { viewModel.refreshPermissions() }
     val settings = state.settings
@@ -149,6 +150,36 @@ fun OverlaySettingsScreen(
                         "반응은 성격 수치에 따라 달라집니다.",
                     style = MaterialTheme.typography.bodySmall
                 )
+            }
+
+            SectionCard("지금 쓰는 앱에 반응") {
+                LabeledSwitch(
+                    label = "앱에 맞춰 반응하기",
+                    description = "영상 앱이면 옆에서 같이 보고, 메신저면 힐끗 보고, 게임이면 " +
+                        "응원해요. 은행·결제 앱에서는 연기와 함께 뿅 숨었다가, " +
+                        "나오면 다시 나타납니다.",
+                    checked = settings.appAwarenessEnabled,
+                    enabled = state.usageAccessGranted
+                ) { viewModel.setAppAwareness(it) }
+
+                if (!state.usageAccessGranted) {
+                    Text(
+                        "'사용 정보 접근'을 허락해야 지금 쓰는 앱을 알 수 있어요. " +
+                            "앱 이름만 알 수 있고 앱 안의 내용은 알 수 없어요. " +
+                            "알아낸 정보는 휴대폰 밖으로 나가지 않습니다.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedButton(onClick = { launchers.requestUsageAccess() }) {
+                        Text("사용 정보 접근 설정 열기")
+                    }
+                    Text(
+                        "목록에서 PAIRPLAY 를 찾아 켜 주세요. 켜지지 않으면 " +
+                            "앱 정보 → 오른쪽 위 ⋮ → '제한된 설정 허용'을 먼저 눌러 주세요.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                OutlinedButton(onClick = onOpenAppRules) { Text("앱별로 정하기") }
             }
 
             SectionCard("음악 반응") {

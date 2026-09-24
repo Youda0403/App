@@ -1,8 +1,11 @@
 package com.pairplay.app.ui
 
 import android.app.Application
+import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.Settings
+import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pairplay.app.data.CharacterEntity
@@ -13,16 +16,20 @@ import com.pairplay.app.data.OverlaySettingsStore
 import com.pairplay.app.data.PairEntity
 import com.pairplay.app.data.RelationshipDirection
 import com.pairplay.app.data.RelationshipType
+import com.pairplay.app.device.ForegroundAppWatcher
+import com.pairplay.app.engine.AppCategory
 import com.pairplay.app.engine.CharacterAction
 import com.pairplay.app.engine.Expression
 import com.pairplay.app.image.ImageImporter
 import com.pairplay.app.music.MusicWatcher
 import com.pairplay.app.overlay.OverlayService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class PairPlayUiState(
     val characters: List<CharacterEntity> = emptyList(),
@@ -31,6 +38,8 @@ data class PairPlayUiState(
     val overlayRunning: Boolean = false,
     val canDrawOverlays: Boolean = false,
     val notificationAccessGranted: Boolean = false,
+    /** '사용 정보 접근' 권한. 지금 쓰는 앱에 반응하려면 필요하다. */
+    val usageAccessGranted: Boolean = false,
     val loading: Boolean = true,
     val message: String? = null,
     /** 지금 도는 상황극 이름. 상황극이 실제로 돌고 있는지 확인할 수 있다. */
@@ -58,11 +67,33 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
 
     /** 권한 상태와 안내 메시지처럼 화면 밖 사정을 한 덩어리로 묶는다. */
     private data class Ambient(
-        val canDrawOverlays: Boolean,
-        val notificationAccessGranted: Boolean,
+        val permissions: Permissions,
         val message: String?,
         val currentScene: String?
     )
+
+    /** 설정 화면에서 사용자가 직접 켜야 하는 권한들. */
+    private data class Permissions(
+        val canDrawOverlays: Boolean,
+        val notificationAccess: Boolean,
+        val usageAccess: Boolean
+    )
+
+    /**
+     * 휴대폰에 깔린 앱 하나. 앱별 반응을 정하는 화면에서 쓴다.
+     * [hint] 는 앱이 스스로 밝힌 종류(게임/영상 등)다. 없을 수 있다.
+     */
+    data class InstalledApp(
+        val packageName: String,
+        val label: String,
+        val icon: Bitmap?,
+        val hint: AppCategory?
+    )
+
+    private val _installedApps = MutableStateFlow<List<InstalledApp>?>(null)
+
+    /** 아직 불러오지 않았으면 null. 앱이 많으면 불러오는 데 잠깐 걸린다. */
+    val installedApps: StateFlow<List<InstalledApp>?> = _installedApps.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -74,7 +105,7 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
                 message,
                 OverlayService.currentScene
             ) { permissions, text, scene ->
-                Ambient(permissions.first, permissions.second, text, scene)
+                Ambient(permissions, text, scene)
             }
             combine(
                 repository.observeCharacters(),
@@ -88,8 +119,9 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
                     activePair = pair,
                     settings = settings,
                     overlayRunning = running,
-                    canDrawOverlays = outside.canDrawOverlays,
-                    notificationAccessGranted = outside.notificationAccessGranted,
+                    canDrawOverlays = outside.permissions.canDrawOverlays,
+                    notificationAccessGranted = outside.permissions.notificationAccess,
+                    usageAccessGranted = outside.permissions.usageAccess,
                     loading = false,
                     message = outside.message,
                     currentScene = outside.currentScene
@@ -107,11 +139,62 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
         permissionState.value = readPermissionState()
     }
 
-    private fun readPermissionState(): Pair<Boolean, Boolean> {
+    private fun readPermissionState(): Permissions {
         val context = getApplication<Application>()
-        return Settings.canDrawOverlays(context) to
-            MusicWatcher.isNotificationAccessGranted(context)
+        return Permissions(
+            canDrawOverlays = Settings.canDrawOverlays(context),
+            notificationAccess = MusicWatcher.isNotificationAccessGranted(context),
+            usageAccess = ForegroundAppWatcher.hasPermission(context)
+        )
     }
+
+    // ------------------------------------------------------------------ 앱별 반응
+
+    /**
+     * 홈 화면에 아이콘이 있는 앱들을 불러온다. 한 번 불러오면 다시 부르지 않는다.
+     * 아이콘을 만드는 데 시간이 조금 걸려 화면 밖에서 한다.
+     */
+    fun loadInstalledApps(force: Boolean = false) {
+        if (_installedApps.value != null && !force) return
+        viewModelScope.launch {
+            _installedApps.value = withContext(Dispatchers.IO) { readInstalledApps() }
+        }
+    }
+
+    private fun readInstalledApps(): List<InstalledApp> {
+        val context = getApplication<Application>()
+        val pm = context.packageManager
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val iconPx = (ICON_DP * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+
+        return pm.queryIntentActivities(launcher, 0)
+            .asSequence()
+            .map { it.activityInfo.applicationInfo }
+            .distinctBy { it.packageName }
+            // 이 앱 자신은 뺀다. 여기서는 반응하지 않는다.
+            .filter { it.packageName != context.packageName }
+            .map { info ->
+                val icon = try {
+                    pm.getApplicationIcon(info).toBitmap(iconPx, iconPx)
+                } catch (e: Exception) {
+                    null
+                }
+                InstalledApp(
+                    packageName = info.packageName,
+                    label = pm.getApplicationLabel(info).toString(),
+                    icon = icon,
+                    hint = ForegroundAppWatcher.platformHint(info)
+                )
+            }
+            .sortedBy { it.label.lowercase() }
+            .toList()
+    }
+
+    fun setAppAwareness(on: Boolean) = launchSetting { settingsStore.setAppAwareness(on) }
+
+    /** 한 앱의 종류를 직접 정한다. null 이면 기본값으로 되돌린다. */
+    fun setAppRule(packageName: String, category: AppCategory?) =
+        launchSetting { settingsStore.setAppRule(packageName, category) }
 
     // ------------------------------------------------------------------ 캐릭터
 
@@ -306,6 +389,9 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
     companion object {
         private const val MIN_HEIGHT_DP = 60
         private const val MAX_HEIGHT_DP = 320
+
+        /** 앱별 설정 목록에 쓰는 아이콘 크기. */
+        private const val ICON_DP = 40
     }
 
     private fun describe(reason: ImageImporter.Reason): String = when (reason) {

@@ -15,6 +15,8 @@ import com.pairplay.app.data.RelationshipDirection
 import com.pairplay.app.data.RelationshipType
 import com.pairplay.app.data.SceneEntity
 import com.pairplay.app.data.SceneTrigger
+import com.pairplay.app.engine.AppCategory
+import com.pairplay.app.engine.AppReactionMapper
 import com.pairplay.app.engine.CharacterAction
 import com.pairplay.app.engine.DeviceEvent
 import com.pairplay.app.engine.ReactionMapper
@@ -27,6 +29,8 @@ import com.pairplay.app.engine.MoodMapper
 import com.pairplay.app.engine.Pose
 import com.pairplay.app.engine.CharacterTraits
 import com.pairplay.app.engine.Performer
+import com.pairplay.app.engine.PoofCalculator
+import com.pairplay.app.engine.PoofMode
 import com.pairplay.app.engine.PoseCalculator
 import com.pairplay.app.engine.RelationshipContext
 import com.pairplay.app.engine.SceneCodec
@@ -46,7 +50,9 @@ class OverlayController(
     private val onHideRequested: () -> Unit,
     private val onPositionPersist: (slot: CharacterWindow.Slot, x: Int, y: Int) -> Unit,
     /** 지금 어떤 상황극이 도는지 알린다. 앱 화면에서 확인용으로 보여 준다. */
-    private val onSceneChanged: (String?) -> Unit = {}
+    private val onSceneChanged: (String?) -> Unit = {},
+    /** 숨었는지, 왜 숨었는지 알린다. 위젯에 '숨어 있어요' 를 띄울 때 쓴다. */
+    private val onVisibilityChanged: (OverlayVisibility) -> Unit = {}
 ) : CharacterWindow.Callbacks {
 
     private class Runtime(
@@ -129,6 +135,16 @@ class OverlayController(
          */
         var visible: Boolean = true
 
+        /** 연기와 함께 사라지거나 나타나는 중. 이동안에는 제자리에 멈춰 있는다. */
+        var poofMode: PoofMode? = null
+        var poofStart: Long = 0L
+
+        /** 은행·결제 앱 때문에 숨어 있는지. 앱에서 나오면 '뿅' 하고 다시 나타난다. */
+        var hiddenByApp: Boolean = false
+
+        /** 보이고, 뿅 하는 중도 아니라서 평소처럼 움직여도 되는지. */
+        val active: Boolean get() = visible && poofMode == null
+
         val seed: Float = Random.nextFloat()
         var displayHeight: Float = 0f
         var displayWidth: Float = 0f
@@ -181,6 +197,27 @@ class OverlayController(
 
     /** 마지막으로 콩 부딪힌 시각. 경계에서 여러 번 연속으로 부딪히지 않게 한다. */
     private var lastBumpAt = 0L
+
+    /** 지금 쓰는 앱 때문에 숨어야 하는지(은행·결제 앱). */
+    private var appHidden = false
+
+    /** 직전에 쓰던 앱의 종류. 같은 앱 안에서 계속 반응하지 않게 한다. */
+    private var lastAppCategory: AppCategory = AppCategory.NONE
+
+    /** 앱 종류별로 마지막에 반응한 시각. 앱을 왔다 갔다 해도 너무 자주 반응하지 않게 한다. */
+    private val lastAppReactionAt = HashMap<AppCategory, Long>()
+
+    /** 마지막으로 알린 보임 상태. 바뀔 때만 알린다. */
+    private var lastVisibility = OverlayVisibility.SHOWN
+
+    /**
+     * 민감한 앱에서 나온 뒤 다시 나타날 시각. 0 이면 기다리는 중이 아니다.
+     *
+     * 나오자마자 나타나지 않고 잠깐 기다린다. 은행 앱에서 다른 앱을 잠깐 거쳐
+     * 돌아오는 경우(본인 인증 등), 그 짧은 틈에 캐릭터가 튀어나왔다 다시 숨으면
+     * 정신없고 민감한 화면 위에 잠깐 뜰 수도 있다.
+     */
+    private var unhideAt = 0L
 
     /** 직전 [shiftRuntime] 이 실제로 옮긴 가로 거리. 화면 끝에 막히면 부탁한 값보다 작다. */
     private var lastShiftX = 0f
@@ -330,7 +367,7 @@ class OverlayController(
         if (!settings.deviceReactionsEnabled) return
         val now = System.currentTimeMillis()
         forEachRuntime { runtime ->
-            if (runtime.visible && !runtime.interactionHeld) react(runtime, event, now)
+            if (runtime.active && !runtime.interactionHeld) react(runtime, event, now)
         }
     }
 
@@ -339,6 +376,50 @@ class OverlayController(
         val reaction = ReactionMapper.forEvent(event, runtime.entity.toTraits())
         startAction(runtime, reaction.action, now)
         reaction.effect?.let { spawnEffect(runtime, it, reaction.effectCount, now) }
+    }
+
+    /**
+     * 지금 앞에 떠 있는 앱이 바뀌었다.
+     *
+     * 은행·결제 앱이면 연기와 함께 뿅 사라지고, 빠져나오면 다시 뿅 나타난다.
+     * 다른 종류의 앱이면 그 앱에 어울리는 반응을 한 번 한다.
+     */
+    fun onForegroundApp(category: AppCategory) {
+        val now = System.currentTimeMillis()
+        val effective = if (settings.appAwarenessEnabled) category else AppCategory.NONE
+        val hide = effective.hides
+        val wasHidden = appHidden
+        val changed = effective != lastAppCategory
+        lastAppCategory = effective
+
+        if (hide) {
+            // 다시 민감한 앱으로 들어왔다. 나타나려던 참이었으면 취소한다.
+            unhideAt = 0L
+            if (!wasHidden) {
+                appHidden = true
+                updateVisibility()
+            }
+            return
+        }
+        if (wasHidden) {
+            // 바로 나타나지 않고 잠깐 기다린다. 실제로 나타나는 건 tick 이 한다.
+            if (unhideAt == 0L) unhideAt = now + UNHIDE_DELAY_MS
+            return
+        }
+        if (!changed) return
+
+        val last = lastAppReactionAt[effective] ?: 0L
+        if (now - last < APP_REACTION_COOLDOWN_MS) return
+        var reacted = false
+        forEachRuntime { runtime ->
+            if (!runtime.active || runtime.interactionHeld || runtime.flying) return@forEachRuntime
+            val reaction = AppReactionMapper.forCategory(effective, runtime.entity.toTraits())
+                ?: return@forEachRuntime
+            startAction(runtime, reaction.action, now)
+            reaction.effect?.let { spawnEffect(runtime, it, reaction.effectCount, now) }
+            reacted = true
+        }
+        if (reacted) lastAppReactionAt[effective] = now
     }
 
     fun setMusicPlaying(playing: Boolean) {
@@ -350,7 +431,7 @@ class OverlayController(
             val now = System.currentTimeMillis()
             val sceneStarted = director.onTrigger(SceneTrigger.MUSIC_STARTED, now)
             forEachRuntime { runtime ->
-                if (!runtime.interactionHeld && runtime.visible) {
+                if (!runtime.interactionHeld && runtime.active) {
                     if (sceneStarted) {
                         applyDirection(runtime, now)
                     } else {
@@ -539,11 +620,93 @@ class OverlayController(
      * 한 명만 쓰는 모드에서 둘째가 보이지 않을 때도 마찬가지였다.
      */
     private fun updateVisibility() {
-        val hidden = settings.isHiddenAt(System.currentTimeMillis())
-        runtimeA?.let { setRuntimeVisible(it, !hidden) }
+        val now = System.currentTimeMillis()
+        val hidden = settings.isHiddenAt(now)
+        runtimeA?.let { applyVisibility(it, !hidden, now) }
         runtimeB?.let {
-            setRuntimeVisible(it, !hidden && settings.mode == OverlayMode.PAIR)
+            applyVisibility(it, !hidden && settings.mode == OverlayMode.PAIR, now)
         }
+        reportVisibility(now)
+    }
+
+    /**
+     * 한 캐릭터의 보임 상태를 맞춘다.
+     *
+     * [allowed] 가 false 면(직접 숨김·한 명 모드) 지금까지처럼 바로 감춘다.
+     * 허락된 상태에서 민감한 앱 때문에 숨어야 하면 연기와 함께 뿅 사라지고,
+     * 그 앱에서 나오면 뿅 하고 다시 나타난다.
+     */
+    private fun applyVisibility(runtime: Runtime, allowed: Boolean, now: Long) {
+        if (!allowed) {
+            runtime.poofMode = null
+            runtime.window.setPoof(null)
+            runtime.hiddenByApp = false
+            setRuntimeVisible(runtime, false)
+            return
+        }
+
+        if (appHidden) {
+            when {
+                // 이미 사라지는 중이다.
+                runtime.poofMode == PoofMode.VANISH -> Unit
+                runtime.visible -> startPoof(runtime, PoofMode.VANISH, now)
+                // 직접 숨김이 풀렸는데 아직 은행 앱 안이다. 계속 숨어 있는다.
+                else -> runtime.hiddenByApp = true
+            }
+            return
+        }
+
+        // 보여야 한다. 사라지는 중이면 그걸 마저 끝낸 뒤 다시 나타난다.
+        if (runtime.poofMode == PoofMode.VANISH) return
+        if (runtime.visible) return
+        setRuntimeVisible(runtime, true)
+        if (runtime.hiddenByApp) {
+            runtime.hiddenByApp = false
+            startPoof(runtime, PoofMode.APPEAR, now)
+        }
+    }
+
+    /** 연기와 함께 사라지거나 나타나기 시작한다. 그동안은 제자리에 멈춘다. */
+    private fun startPoof(runtime: Runtime, mode: PoofMode, now: Long) {
+        runtime.poofMode = mode
+        runtime.poofStart = now
+        runtime.interactionHeld = false
+        runtime.flying = false
+        runtime.knockVX = 0f
+        // 떠 있던 하트 같은 건 치운다. 연기만 보여야 '뿅' 이 산다.
+        runtime.effects.clear()
+        runtime.effectWindow.setContent(emptyList())
+        runtime.window.setPoof(PoofCalculator.frame(mode, 0f))
+    }
+
+    /** 뿅 하는 중인 캐릭터를 한 프레임 진행한다. 다 끝나면 정말로 감추거나 평소로 돌린다. */
+    private fun advancePoof(runtime: Runtime, now: Long) {
+        val mode = runtime.poofMode ?: return
+        val progress = ((now - runtime.poofStart).toFloat() / PoofCalculator.DURATION_MS)
+            .coerceIn(0f, 1f)
+        runtime.window.setPoof(PoofCalculator.frame(mode, progress))
+        if (progress < 1f) return
+
+        runtime.poofMode = null
+        runtime.window.setPoof(null)
+        if (mode == PoofMode.VANISH) {
+            runtime.hiddenByApp = true
+            setRuntimeVisible(runtime, false)
+            // 사라지는 사이에 은행 앱을 벗어났을 수 있다. 다시 따져 본다.
+            updateVisibility()
+        }
+    }
+
+    /** 숨었는지, 왜 숨었는지가 바뀌었으면 알린다. */
+    private fun reportVisibility(now: Long) {
+        val state = when {
+            settings.isHiddenAt(now) -> OverlayVisibility.HIDDEN_BY_USER
+            appHidden -> OverlayVisibility.HIDDEN_BY_APP
+            else -> OverlayVisibility.SHOWN
+        }
+        if (state == lastVisibility) return
+        lastVisibility = state
+        onVisibilityChanged(state)
     }
 
     private fun setRuntimeVisible(runtime: Runtime, visible: Boolean) {
@@ -594,8 +757,19 @@ class OverlayController(
             keepOnScreen()
         }
 
-        val a = runtimeA?.takeIf { it.visible }
-        val b = runtimeB?.takeIf { it.visible }
+        // 민감한 앱에서 나온 뒤 기다리던 시간이 지났으면 다시 나타난다.
+        if (unhideAt != 0L && now >= unhideAt) {
+            unhideAt = 0L
+            appHidden = false
+            updateVisibility()
+        }
+
+        // 뿅 하고 사라지거나 나타나는 중인 캐릭터는 연기만 진행하고 제자리에 둔다.
+        runtimeA?.let { advancePoof(it, now) }
+        runtimeB?.let { advancePoof(it, now) }
+
+        val a = runtimeA?.takeIf { it.active }
+        val b = runtimeB?.takeIf { it.active }
         if (a == null && b == null) return
 
         a?.let { updateRuntime(it, now) }
@@ -793,7 +967,7 @@ class OverlayController(
      * 연달아 띄우지 않도록 최소 간격도 여기서 본다.
      */
     private fun spawnMood(runtime: Runtime, action: CharacterAction, now: Long) {
-        if (!settings.bubblesEnabled || !runtime.visible) return
+        if (!settings.bubblesEnabled || !runtime.active) return
         val kind = MoodMapper.forAction(action, runtime.currentScriptId != null) ?: return
         if (now - runtime.lastMoodAt < MoodMapper.MIN_INTERVAL_MS) return
         runtime.lastMoodAt = now
@@ -838,8 +1012,8 @@ class OverlayController(
      * 한쪽이 화면 끝에 막혀 못 비키면 그만큼 다른 쪽이 더 비켜 준다.
      */
     private fun resolveOverlap(now: Long) {
-        val a = runtimeA?.takeIf { it.visible } ?: return
-        val b = runtimeB?.takeIf { it.visible } ?: return
+        val a = runtimeA?.takeIf { it.active } ?: return
+        val b = runtimeB?.takeIf { it.active } ?: return
         if (settings.mode != OverlayMode.PAIR) return
 
         val gap = minSeparationX(a, b)
@@ -946,8 +1120,8 @@ class OverlayController(
 
     /** 둘이 충분히 가까우면 '마주쳤을 때' 장면을 시작해 본다. */
     private fun tryMeetScene(now: Long) {
-        val a = runtimeA?.takeIf { it.visible } ?: return
-        val b = runtimeB?.takeIf { it.visible } ?: return
+        val a = runtimeA?.takeIf { it.active } ?: return
+        val b = runtimeB?.takeIf { it.active } ?: return
         if (settings.mode != OverlayMode.PAIR) return
         if (a.interactionHeld || b.interactionHeld) return
 
@@ -1112,13 +1286,13 @@ class OverlayController(
 
     /** 표시는 설정에서 끌 수 있다. 띄우는 곳은 전부 이 창구를 거친다. */
     private fun spawnEffect(runtime: Runtime, kind: EffectKind, count: Int, now: Long) {
-        if (!settings.effectsEnabled || !runtime.visible) return
+        if (!settings.effectsEnabled || !runtime.active) return
         runtime.effects.spawn(kind, count, now)
     }
 
-    /** 짝. 숨겨져 있거나 한 명만 쓰는 모드라면 없는 것으로 본다. */
+    /** 짝. 숨겨져 있거나, 뿅 하는 중이거나, 한 명만 쓰는 모드라면 없는 것으로 본다. */
     private fun otherOf(runtime: Runtime): Runtime? =
-        (if (runtime === runtimeA) runtimeB else runtimeA)?.takeIf { it.visible }
+        (if (runtime === runtimeA) runtimeB else runtimeA)?.takeIf { it.active }
 
     // ---------------------------------------------------------------- 터치
 
@@ -1227,7 +1401,7 @@ class OverlayController(
         if (!thrown) persistPositions()
         // 내려놓은 자리를 기준으로 둘 다 다시 서로를 본다.
         val now = System.currentTimeMillis()
-        forEachRuntime { if (it.visible) faceOther(it, now) }
+        forEachRuntime { if (it.active) faceOther(it, now) }
         // 다른 캐릭터 옆에 데려다 놓았다면 서로 반응한다.
         tryMeetScene(System.currentTimeMillis())
     }
@@ -1263,7 +1437,7 @@ class OverlayController(
      * 날아가고, 천천히 내려놓으면 그 자리에 그대로 선다.
      */
     private fun tryThrow(runtime: Runtime?): Boolean {
-        if (runtime == null || !runtime.visible) return false
+        if (runtime == null || !runtime.active) return false
         val speed = hypot(runtime.dragVelocity, runtime.dragVelocityY)
         if (speed < THROW_MIN_SPEED_PX) return false
 
@@ -1385,10 +1559,11 @@ class OverlayController(
             deltaY * VELOCITY_SMOOTHING
     }
 
+    /** 터치를 받을 캐릭터. 뿅 하고 사라지거나 나타나는 중에는 붙잡을 수 없다. */
     private fun runtimeOf(slot: CharacterWindow.Slot): Runtime? = when (slot) {
         CharacterWindow.Slot.A -> runtimeA
         CharacterWindow.Slot.B -> runtimeB
-    }
+    }?.takeIf { it.poofMode == null }
 
     // ---------------------------------------------------------------- 화면 경계
 
@@ -1512,6 +1687,12 @@ class OverlayController(
 
         /** 이만큼 못 갔으면 화면 끝에 막힌 것으로 본다. */
         private const val WALL_TOLERANCE_PX = 2f
+
+        /** 같은 종류의 앱에 다시 반응하기까지 기다리는 시간. 앱을 오갈 때마다 반응하면 정신없다. */
+        private const val APP_REACTION_COOLDOWN_MS = 20_000L
+
+        /** 민감한 앱에서 나온 뒤 다시 나타나기까지 기다리는 시간. */
+        private const val UNHIDE_DELAY_MS = 1_200L
 
         /**
          * 손을 뗄 때 이보다 빠르게 뿌려야 던진 것으로 본다(px/프레임).

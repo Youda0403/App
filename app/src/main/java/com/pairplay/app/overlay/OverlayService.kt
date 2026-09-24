@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -22,7 +23,10 @@ import com.pairplay.app.data.OverlaySettings
 import com.pairplay.app.data.OverlaySettingsStore
 import com.pairplay.app.data.PairPlayDatabase
 import com.pairplay.app.device.DeviceEventWatcher
+import com.pairplay.app.device.ForegroundAppWatcher
 import com.pairplay.app.device.ShakeWatcher
+import com.pairplay.app.engine.AppCategory
+import com.pairplay.app.engine.AppRules
 import com.pairplay.app.engine.DeviceEvent
 import com.pairplay.app.music.MusicWatcher
 import com.pairplay.app.ui.MainActivity
@@ -55,7 +59,11 @@ class OverlayService : LifecycleService() {
     private var musicWatcher: MusicWatcher? = null
     private var shakeWatcher: ShakeWatcher? = null
     private var deviceEventWatcher: DeviceEventWatcher? = null
+    private var appWatcher: ForegroundAppWatcher? = null
     private var lastSettings: OverlaySettings = OverlaySettings()
+
+    /** 마지막으로 앞에 떠 있던 앱. 앱별 설정이 바뀌면 이 앱부터 다시 따져 본다. */
+    private var lastForegroundPackage: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -79,6 +87,11 @@ class OverlayService : LifecycleService() {
                 _currentScene.value = name
                 // 위젯에도 지금 상황을 알린다. 너무 잦은 갱신은 위젯 쪽에서 걸러 낸다.
                 PairPlayWidgetProvider.refresh(applicationContext)
+            },
+            onVisibilityChanged = { visibility ->
+                _visibility.value = visibility
+                // 숨었다/나타났다는 바로 위젯에 보여 준다.
+                PairPlayWidgetProvider.refresh(applicationContext, force = true)
             }
         ).also { it.start() }
 
@@ -123,6 +136,9 @@ class OverlayService : LifecycleService() {
         PairPlayWidgetProvider.refresh(applicationContext, force = true)
         musicWatcher?.stop()
         musicWatcher = null
+        appWatcher?.stop()
+        appWatcher = null
+        _visibility.value = OverlayVisibility.SHOWN
         shakeWatcher?.stop()
         shakeWatcher = null
         deviceEventWatcher?.stop()
@@ -163,6 +179,7 @@ class OverlayService : LifecycleService() {
                 controller?.updateSettings(settings)
                 controller?.setUserScenes(scenes)
                 applyDeviceWatchers(settings.deviceReactionsEnabled)
+                applyAppWatcher(settings.appAwarenessEnabled)
                 PairPlayWidgetProvider.refresh(applicationContext, force = true)
                 controller?.setCharacters(
                     a = a,
@@ -178,6 +195,43 @@ class OverlayService : LifecycleService() {
      * 휴대폰에서 벌어지는 일에 반응하기 위한 감시들.
      * 추가 권한이 필요 없고, 서비스가 떠 있는 동안에만 동작한다.
      */
+    /**
+     * 지금 쓰는 앱을 지켜보기 시작하거나 멈춘다.
+     * 꺼 두면 은행 앱 때문에 숨어 있던 캐릭터도 다시 나타난다.
+     */
+    private fun applyAppWatcher(enabled: Boolean) {
+        if (enabled) {
+            if (appWatcher == null) {
+                appWatcher = ForegroundAppWatcher(this) { pkg ->
+                    lastForegroundPackage = pkg
+                    controller?.onForegroundApp(categoryOf(pkg))
+                }.also { it.start() }
+            } else {
+                // 앱별 설정이 바뀌었을 수 있다. 지금 앱을 다시 따져 본다.
+                lastForegroundPackage?.let { controller?.onForegroundApp(categoryOf(it)) }
+            }
+        } else {
+            appWatcher?.stop()
+            appWatcher = null
+            lastForegroundPackage = null
+            controller?.onForegroundApp(AppCategory.NONE)
+        }
+    }
+
+    /**
+     * 앱이 어떤 종류인지 정한다. 이 앱(PAIRPLAY) 자신에게는 반응하지 않는다.
+     * 사용자가 정한 것 → 기본 목록 → 이름 짐작 → 앱이 밝힌 종류 순으로 본다.
+     */
+    private fun categoryOf(pkg: String): AppCategory {
+        if (pkg == packageName) return AppCategory.NONE
+        val hint = try {
+            ForegroundAppWatcher.platformHint(packageManager.getApplicationInfo(pkg, 0))
+        } catch (e: PackageManager.NameNotFoundException) {
+            null
+        }
+        return AppRules.resolve(pkg, AppRules.parse(lastSettings.appRules), hint)
+    }
+
     private fun applyDeviceWatchers(enabled: Boolean) {
         if (enabled) {
             if (shakeWatcher == null) {
@@ -332,6 +386,10 @@ class OverlayService : LifecycleService() {
         /** 지금 도는 상황극 이름. 앱 화면에서 확인용으로 보여 준다. */
         private val _currentScene = MutableStateFlow<String?>(null)
         val currentScene: StateFlow<String?> = _currentScene
+
+        /** 캐릭터가 지금 보이는지, 숨었다면 왜 숨었는지. 위젯이 읽는다. */
+        private val _visibility = MutableStateFlow(OverlayVisibility.SHOWN)
+        val visibility: StateFlow<OverlayVisibility> = _visibility
 
         fun start(context: Context) {
             val intent = Intent(context, OverlayService::class.java)

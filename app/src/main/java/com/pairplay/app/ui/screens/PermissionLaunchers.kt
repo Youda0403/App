@@ -11,6 +11,7 @@ import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import com.pairplay.app.device.ForegroundAppWatcher
 import com.pairplay.app.music.MusicWatcher
 
 /**
@@ -36,6 +37,14 @@ class PermissionLaunchers(
     /** 음악 반응에 필요한 알림 접근 설정 화면을 연다. */
     fun requestNotificationAccess() {
         notificationAccessLauncher.launch(MusicWatcher.notificationAccessSettingsIntent())
+    }
+
+    /**
+     * 지금 쓰는 앱에 반응하는 데 필요한 '사용 정보 접근' 설정 화면을 연다.
+     * 돌아오면 권한 상태를 다시 읽는다. (알림 접근과 같은 방식이라 같은 런처를 쓴다)
+     */
+    fun requestUsageAccess() {
+        notificationAccessLauncher.launch(ForegroundAppWatcher.settingsIntent())
     }
 
     /**

@@ -4,10 +4,12 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.view.View
+import com.pairplay.app.engine.PoofFrame
 import com.pairplay.app.engine.Pose
 
 /**
@@ -60,6 +62,20 @@ class CharacterView(context: Context) : View(context) {
             }
         }
 
+    /**
+     * 연기와 함께 '뿅' 사라지거나 나타나는 중인 모습. null 이면 평소대로 그린다.
+     * 은행·결제 앱에 들어가고 나올 때 쓴다.
+     */
+    var poof: PoofFrame? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                invalidate()
+            }
+        }
+
+    private val smokePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
     /** 캐릭터가 좌우 반전 상태로 등록되었는지. facingRight 와 함께 최종 반전을 정한다. */
     var flippedByUser: Boolean = false
         set(value) {
@@ -101,7 +117,20 @@ class CharacterView(context: Context) : View(context) {
         // 발밑을 회전·확대의 기준으로 삼는다. 그래야 캐릭터가 땅에 붙어 있는 느낌이 난다.
         val footY = centerY + drawHeight / 2f
 
+        val poofFrame = poof
+        if (poofFrame != null && poofFrame.characterAlpha <= 0.01f) {
+            // 캐릭터는 다 사라지고 연기만 남은 순간.
+            drawSmoke(canvas, poofFrame, centerX, centerY)
+            return
+        }
+
         val save = canvas.save()
+
+        if (poofFrame != null) {
+            // 뿅 하는 동안에는 몸 한가운데를 기준으로 쪼그라들거나 튀어나온다.
+            canvas.scale(poofFrame.characterScale, poofFrame.characterScale, centerX, centerY)
+            paint.alpha = (poofFrame.characterAlpha * 255).toInt().coerceIn(0, 255)
+        }
 
         canvas.translate(0f, pose.offsetY)
         canvas.rotate(pose.rotationDeg, centerX, footY)
@@ -122,7 +151,41 @@ class CharacterView(context: Context) : View(context) {
         canvas.drawBitmap(bmp, srcRect, dstRect, paint)
 
         canvas.restoreToCount(save)
+        paint.alpha = 255
+
+        if (poofFrame != null) drawSmoke(canvas, poofFrame, centerX, centerY)
+    }
+
+    /**
+     * 연기 뭉치들을 그린다. 뭉치 하나는 크고 작은 동그라미 셋을 겹쳐 뭉게뭉게 보이게 한다.
+     * 창 가장자리에서 잘리면 네모난 연기가 되므로, 창 안에 들어오도록 줄여서 그린다.
+     */
+    private fun drawSmoke(canvas: Canvas, frame: PoofFrame, centerX: Float, centerY: Float) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        for (puff in frame.puffs) {
+            val cx = centerX + puff.dxRatio * drawHeight
+            val cy = centerY + puff.dyRatio * drawHeight
+            val room = minOf(cx, w - cx, cy, h - cy)
+            if (room <= 1f) continue
+            val r = (puff.radiusRatio * drawHeight).coerceAtMost(room)
+            val alpha = (puff.alpha * 235).toInt().coerceIn(0, 255)
+
+            smokePaint.color = SMOKE_EDGE
+            smokePaint.alpha = alpha
+            canvas.drawCircle(cx, cy, r, smokePaint)
+
+            smokePaint.color = SMOKE_FILL
+            smokePaint.alpha = alpha
+            canvas.drawCircle(cx, cy, r * 0.86f, smokePaint)
+            canvas.drawCircle(cx - r * 0.45f, cy + r * 0.2f, r * 0.55f, smokePaint)
+            canvas.drawCircle(cx + r * 0.4f, cy + r * 0.25f, r * 0.5f, smokePaint)
+        }
     }
 }
 
 private const val MIN_MIRROR = 0.04f
+
+/** 연기 색. 안쪽은 하얗고 가장자리는 옅은 보라빛 회색이라 배경이 밝아도 보인다. */
+private val SMOKE_FILL = Color.parseColor("#FAF8FC")
+private val SMOKE_EDGE = Color.parseColor("#CFC6DA")
