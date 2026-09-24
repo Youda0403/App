@@ -139,8 +139,8 @@ fun OverlaySettingsScreen(
                 LabeledSwitch(
                     label = "휴대폰에서 벌어지는 일에 반응",
                     description = "흔들면 어지러워하고, 충전기를 꽂으면 좋아하고, " +
-                        "이어폰을 꽂으면 리듬을 타요. 소리 크기, 배터리, 화면 돌리기, " +
-                        "잠금 해제에도 반응합니다. 추가 권한은 필요 없어요.",
+                        "이어폰을 꽂으면 리듬을 타요. 화면을 돌리거나 잠금을 풀 때도 " +
+                        "반응합니다. 추가 권한은 필요 없어요.",
                     checked = settings.deviceReactionsEnabled
                 ) { viewModel.setDeviceReactions(it) }
                 Text(

@@ -74,7 +74,7 @@ class ReactionMapperTest {
         // 신나는 일에는 꽃이 뜬다.
         assertEquals(
             EffectKind.FLOWER,
-            ReactionMapper.forEvent(DeviceEvent.BATTERY_FULL, plain).effect
+            ReactionMapper.forEvent(DeviceEvent.CHARGER_ON, plain).effect
         )
     }
 

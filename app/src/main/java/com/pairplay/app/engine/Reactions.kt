@@ -28,18 +28,6 @@ enum class DeviceEvent(val id: String, val label: String) {
     /** 잠금을 풀었다. 주인이 돌아온 셈이다. */
     UNLOCKED("unlocked", "잠금 해제"),
 
-    /** 소리를 키웠다. */
-    VOLUME_UP("volume_up", "소리 키우기"),
-
-    /** 소리를 줄였다. */
-    VOLUME_DOWN("volume_down", "소리 줄이기"),
-
-    /** 배터리가 얼마 남지 않았다. */
-    BATTERY_LOW("battery_low", "배터리 부족"),
-
-    /** 충전이 다 됐다. */
-    BATTERY_FULL("battery_full", "충전 완료"),
-
     /** 화면을 가로/세로로 돌렸다. */
     ROTATED("rotated", "화면 돌리기")
 }
@@ -119,16 +107,6 @@ object ReactionMapper {
             traits.shyness >= STRONG -> Reaction(CharacterAction.GLANCE, EffectKind.HEART, 1)
             else -> Reaction(CharacterAction.SURPRISED, EffectKind.HEART, 2)
         }
-
-        // 소리를 키우면 신나서 리듬을 타고, 줄이면 조용해진다.
-        DeviceEvent.VOLUME_UP -> Reaction(CharacterAction.RHYTHM, EffectKind.NOTE, 2)
-        DeviceEvent.VOLUME_DOWN -> Reaction(CharacterAction.GLANCE, EffectKind.NOTE, 1)
-
-        // 배터리가 얼마 없으면 기운이 빠진다.
-        DeviceEvent.BATTERY_LOW -> Reaction(CharacterAction.SULK, EffectKind.SWEAT, 2)
-
-        // 다 충전되면 기분이 좋다.
-        DeviceEvent.BATTERY_FULL -> Reaction(CharacterAction.JUMP, EffectKind.FLOWER, 3)
 
         // 화면을 돌리면 휘청한다.
         DeviceEvent.ROTATED -> Reaction(CharacterAction.SURPRISED, EffectKind.EXCLAIM, 1)
