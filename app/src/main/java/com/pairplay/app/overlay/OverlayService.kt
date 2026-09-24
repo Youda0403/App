@@ -4,7 +4,6 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -219,17 +218,12 @@ class OverlayService : LifecycleService() {
     }
 
     /**
-     * 앱이 어떤 종류인지 정한다. 이 앱(PAIRPLAY) 자신에게는 반응하지 않는다.
-     * 사용자가 정한 것 → 기본 목록 → 이름 짐작 → 앱이 밝힌 종류 순으로 본다.
+     * 이 앱에서 숨어야 하는지 정한다. 이 앱(PAIRPLAY) 자신에서는 숨지 않는다.
+     * 사용자가 정한 것 → 기본 목록 → 이름 짐작 순으로 본다.
      */
     private fun categoryOf(pkg: String): AppCategory {
         if (pkg == packageName) return AppCategory.NONE
-        val hint = try {
-            ForegroundAppWatcher.platformHint(packageManager.getApplicationInfo(pkg, 0))
-        } catch (e: PackageManager.NameNotFoundException) {
-            null
-        }
-        return AppRules.resolve(pkg, AppRules.parse(lastSettings.appRules), hint)
+        return AppRules.resolve(pkg, AppRules.parse(lastSettings.appRules))
     }
 
     private fun applyDeviceWatchers(enabled: Boolean) {

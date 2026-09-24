@@ -16,7 +16,6 @@ import com.pairplay.app.data.RelationshipType
 import com.pairplay.app.data.SceneEntity
 import com.pairplay.app.data.SceneTrigger
 import com.pairplay.app.engine.AppCategory
-import com.pairplay.app.engine.AppReactionMapper
 import com.pairplay.app.engine.CharacterAction
 import com.pairplay.app.engine.DeviceEvent
 import com.pairplay.app.engine.ReactionMapper
@@ -201,12 +200,6 @@ class OverlayController(
     /** 지금 쓰는 앱 때문에 숨어야 하는지(은행·결제 앱). */
     private var appHidden = false
 
-    /** 직전에 쓰던 앱의 종류. 같은 앱 안에서 계속 반응하지 않게 한다. */
-    private var lastAppCategory: AppCategory = AppCategory.NONE
-
-    /** 앱 종류별로 마지막에 반응한 시각. 앱을 왔다 갔다 해도 너무 자주 반응하지 않게 한다. */
-    private val lastAppReactionAt = HashMap<AppCategory, Long>()
-
     /** 마지막으로 알린 보임 상태. 바뀔 때만 알린다. */
     private var lastVisibility = OverlayVisibility.SHOWN
 
@@ -382,44 +375,23 @@ class OverlayController(
      * 지금 앞에 떠 있는 앱이 바뀌었다.
      *
      * 은행·결제 앱이면 연기와 함께 뿅 사라지고, 빠져나오면 다시 뿅 나타난다.
-     * 다른 종류의 앱이면 그 앱에 어울리는 반응을 한 번 한다.
+     * 그 밖의 앱에는 반응하지 않는다. (종류마다 반응하던 것은 뜻을 알아보기 어려워 뺐다)
      */
     fun onForegroundApp(category: AppCategory) {
         val now = System.currentTimeMillis()
-        val effective = if (settings.appAwarenessEnabled) category else AppCategory.NONE
-        val hide = effective.hides
-        val wasHidden = appHidden
-        val changed = effective != lastAppCategory
-        lastAppCategory = effective
+        val hide = settings.appAwarenessEnabled && category.hides
 
         if (hide) {
             // 다시 민감한 앱으로 들어왔다. 나타나려던 참이었으면 취소한다.
             unhideAt = 0L
-            if (!wasHidden) {
+            if (!appHidden) {
                 appHidden = true
                 updateVisibility()
             }
             return
         }
-        if (wasHidden) {
-            // 바로 나타나지 않고 잠깐 기다린다. 실제로 나타나는 건 tick 이 한다.
-            if (unhideAt == 0L) unhideAt = now + UNHIDE_DELAY_MS
-            return
-        }
-        if (!changed) return
-
-        val last = lastAppReactionAt[effective] ?: 0L
-        if (now - last < APP_REACTION_COOLDOWN_MS) return
-        var reacted = false
-        forEachRuntime { runtime ->
-            if (!runtime.active || runtime.interactionHeld || runtime.flying) return@forEachRuntime
-            val reaction = AppReactionMapper.forCategory(effective, runtime.entity.toTraits())
-                ?: return@forEachRuntime
-            startAction(runtime, reaction.action, now)
-            reaction.effect?.let { spawnEffect(runtime, it, reaction.effectCount, now) }
-            reacted = true
-        }
-        if (reacted) lastAppReactionAt[effective] = now
+        // 바로 나타나지 않고 잠깐 기다린다. 실제로 나타나는 건 tick 이 한다.
+        if (appHidden && unhideAt == 0L) unhideAt = now + UNHIDE_DELAY_MS
     }
 
     fun setMusicPlaying(playing: Boolean) {
@@ -1155,7 +1127,6 @@ class OverlayController(
         val direction = director.nextDirection(
             performer = performerOf(runtime),
             now = now,
-            musicPlaying = musicPlaying && settings.musicReactionEnabled,
             nearEdge = isNearEdge(runtime),
             // 놀라거나 부딪힌 직후에 곧바로 졸면 뜬금없다.
             justStartled = runtime.action == CharacterAction.BUMP ||
@@ -1687,9 +1658,6 @@ class OverlayController(
 
         /** 이만큼 못 갔으면 화면 끝에 막힌 것으로 본다. */
         private const val WALL_TOLERANCE_PX = 2f
-
-        /** 같은 종류의 앱에 다시 반응하기까지 기다리는 시간. 앱을 오갈 때마다 반응하면 정신없다. */
-        private const val APP_REACTION_COOLDOWN_MS = 20_000L
 
         /** 민감한 앱에서 나온 뒤 다시 나타나기까지 기다리는 시간. */
         private const val UNHIDE_DELAY_MS = 1_200L

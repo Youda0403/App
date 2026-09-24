@@ -79,15 +79,11 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
         val usageAccess: Boolean
     )
 
-    /**
-     * 휴대폰에 깔린 앱 하나. 앱별 반응을 정하는 화면에서 쓴다.
-     * [hint] 는 앱이 스스로 밝힌 종류(게임/영상 등)다. 없을 수 있다.
-     */
+    /** 휴대폰에 깔린 앱 하나. 숨을 앱을 정하는 화면에서 쓴다. */
     data class InstalledApp(
         val packageName: String,
         val label: String,
-        val icon: Bitmap?,
-        val hint: AppCategory?
+        val icon: Bitmap?
     )
 
     private val _installedApps = MutableStateFlow<List<InstalledApp>?>(null)
@@ -148,7 +144,7 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    // ------------------------------------------------------------------ 앱별 반응
+    // ------------------------------------------------------------------ 숨을 앱
 
     /**
      * 홈 화면에 아이콘이 있는 앱들을 불러온다. 한 번 불러오면 다시 부르지 않는다.
@@ -182,8 +178,7 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
                 InstalledApp(
                     packageName = info.packageName,
                     label = pm.getApplicationLabel(info).toString(),
-                    icon = icon,
-                    hint = ForegroundAppWatcher.platformHint(info)
+                    icon = icon
                 )
             }
             .sortedBy { it.label.lowercase() }
@@ -192,7 +187,7 @@ class PairPlayViewModel(application: Application) : AndroidViewModel(application
 
     fun setAppAwareness(on: Boolean) = launchSetting { settingsStore.setAppAwareness(on) }
 
-    /** 한 앱의 종류를 직접 정한다. null 이면 기본값으로 되돌린다. */
+    /** 한 앱에서 숨을지 직접 정한다. null 이면 기본값으로 되돌린다. */
     fun setAppRule(packageName: String, category: AppCategory?) =
         launchSetting { settingsStore.setAppRule(packageName, category) }
 

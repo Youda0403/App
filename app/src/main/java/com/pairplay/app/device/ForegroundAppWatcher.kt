@@ -5,7 +5,6 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -13,7 +12,6 @@ import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import android.util.Log
-import com.pairplay.app.engine.AppCategory
 
 /**
  * 지금 앞에 떠 있는 앱이 무엇인지 알려 준다.
@@ -123,17 +121,5 @@ class ForegroundAppWatcher(
 
         /** '사용 정보 접근' 설정 화면. */
         fun settingsIntent(): Intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-
-        /**
-         * 앱이 스스로 밝힌 종류(게임/영상/음악/SNS). 목록에 없는 앱을 짐작할 때 쓴다.
-         * 안드로이드 8 부터 앱이 설치 정보에 적어 둘 수 있다.
-         */
-        fun platformHint(info: ApplicationInfo): AppCategory? = when (info.category) {
-            ApplicationInfo.CATEGORY_GAME -> AppCategory.GAME
-            ApplicationInfo.CATEGORY_VIDEO -> AppCategory.VIDEO
-            ApplicationInfo.CATEGORY_AUDIO -> AppCategory.MUSIC
-            ApplicationInfo.CATEGORY_SOCIAL -> AppCategory.SOCIAL
-            else -> null
-        }
     }
 }

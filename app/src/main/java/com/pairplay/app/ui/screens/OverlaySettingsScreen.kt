@@ -152,19 +152,18 @@ fun OverlaySettingsScreen(
                 )
             }
 
-            SectionCard("지금 쓰는 앱에 반응") {
+            SectionCard("은행·결제 앱에서 숨기") {
                 LabeledSwitch(
-                    label = "앱에 맞춰 반응하기",
-                    description = "영상 앱이면 옆에서 같이 보고, 메신저면 힐끗 보고, 게임이면 " +
-                        "응원해요. 은행·결제 앱에서는 연기와 함께 뿅 숨었다가, " +
-                        "나오면 다시 나타납니다.",
+                    label = "은행·결제 앱에서 알아서 숨기",
+                    description = "은행·결제·본인 인증 앱을 쓰는 동안 연기와 함께 뿅 숨었다가, " +
+                        "나오면 다시 나타나요. 앱에 들어간 뒤 1초쯤 지나서 숨습니다.",
                     checked = settings.appAwarenessEnabled,
                     enabled = state.usageAccessGranted
                 ) { viewModel.setAppAwareness(it) }
 
                 if (!state.usageAccessGranted) {
                     Text(
-                        "'사용 정보 접근'을 허락해야 지금 쓰는 앱을 알 수 있어요. " +
+                        "'사용 정보 접근'을 허락해야 지금 은행 앱을 쓰는지 알 수 있어요. " +
                             "앱 이름만 알 수 있고 앱 안의 내용은 알 수 없어요. " +
                             "알아낸 정보는 휴대폰 밖으로 나가지 않습니다.",
                         style = MaterialTheme.typography.bodySmall
@@ -179,13 +178,14 @@ fun OverlaySettingsScreen(
                     )
                 }
 
-                OutlinedButton(onClick = onOpenAppRules) { Text("앱별로 정하기") }
+                OutlinedButton(onClick = onOpenAppRules) { Text("숨을 앱 정하기") }
             }
 
             SectionCard("음악 반응") {
                 LabeledSwitch(
-                    label = "음악에 맞춰 움직이기",
-                    description = "재생/일시정지에 반응해요. 박자 분석은 하지 않습니다.",
+                    label = "음악을 틀면 반응하기",
+                    description = "음악을 트는 순간 리듬을 타며 음표를 띄워요. " +
+                        "틀어 둔 동안 계속 춤추지는 않습니다.",
                     checked = settings.musicReactionEnabled,
                     enabled = state.notificationAccessGranted
                 ) { viewModel.setMusicReaction(it) }

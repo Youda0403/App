@@ -46,11 +46,11 @@ import com.pairplay.app.ui.PairPlayUiState
 import com.pairplay.app.ui.PairPlayViewModel
 
 /**
- * 앱별로 어떻게 반응할지 정하는 화면.
+ * 어떤 앱에서 캐릭터가 숨을지 정하는 화면.
  *
- * 자주 쓰는 앱은 미리 분류해 두었고(기본), 사용자가 직접 바꿀 수 있다(직접 정함).
- * 직접 정한 것이 늘 우선이다. 분류가 있는 앱을 위로 올려, 무엇이 정해져 있는지
- * 한눈에 보이게 한다.
+ * 은행·결제 앱은 미리 알아서 숨도록 해 두었고(기본), 사용자가 직접 바꿀 수 있다
+ * (직접 정함). 직접 정한 것이 늘 우선이다. 숨는 앱을 위로 올려, 지금 어떤 앱에서
+ * 숨는지 한눈에 보이게 한다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,7 +69,7 @@ fun AppRulesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("앱별 반응") },
+                title = { Text("숨을 앱 정하기") },
                 navigationIcon = { IconButton(onClick = onBack) { Text("뒤로") } }
             )
         }
@@ -82,9 +82,9 @@ fun AppRulesScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                "자주 쓰는 앱은 미리 분류해 두었어요. 눌러서 직접 바꿀 수 있고, " +
-                    "직접 정한 게 늘 우선입니다. '은행·결제 (숨기)'로 두면 그 앱을 " +
-                    "쓰는 동안 캐릭터가 연기와 함께 숨어요.",
+                "은행·결제 앱은 알아서 숨도록 해 두었어요. 여기서 숨는 앱은 쓰는 동안 " +
+                    "캐릭터가 연기와 함께 뿅 숨었다가, 나오면 다시 나타나요. " +
+                    "눌러서 바꿀 수 있고, 직접 정한 게 늘 우선입니다.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 8.dp)
             )
@@ -105,8 +105,8 @@ fun AppRulesScreen(
             } else {
                 val rows = list
                     .filter { query.isBlank() || it.label.contains(query.trim(), ignoreCase = true) }
-                    .map { app -> app to AppRules.resolve(app.packageName, overrides, app.hint) }
-                    // 분류가 있는 앱을 위로, 그다음은 이름 순.
+                    .map { app -> app to AppRules.resolve(app.packageName, overrides) }
+                    // 숨는 앱과 직접 정한 앱을 위로, 그다음은 이름 순.
                     .sortedWith(
                         compareBy(
                             { it.second == AppCategory.NONE && it.first.packageName !in overrides },
@@ -176,8 +176,8 @@ private fun AppRuleRow(
             Text(
                 when {
                     custom -> "${category.label} · 직접 정함"
-                    category == AppCategory.NONE -> "반응 안 함"
-                    else -> "${category.label} · 기본"
+                    category == AppCategory.NONE -> "숨지 않음"
+                    else -> "숨음 · 기본"
                 },
                 style = MaterialTheme.typography.bodySmall
             )
@@ -185,7 +185,7 @@ private fun AppRuleRow(
     }
 }
 
-/** 한 앱의 종류를 고르는 창. '기본값으로' 를 누르면 직접 정한 것을 지운다. */
+/** 한 앱에서 숨을지 고르는 창. '기본값으로' 를 누르면 직접 정한 것을 지운다. */
 @Composable
 private fun CategoryDialog(
     app: PairPlayViewModel.InstalledApp,

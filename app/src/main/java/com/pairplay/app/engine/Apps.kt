@@ -1,56 +1,49 @@
 package com.pairplay.app.engine
 
 /**
- * 지금 쓰고 있는 앱의 종류.
+ * 지금 쓰는 앱에서 캐릭터가 숨어야 하는지.
  *
  * 앱 **이름(패키지)** 만 보고 정한다. 앱 안에서 무엇을 보고 있는지는 알 수 없고,
  * 알려고 하지도 않는다.
+ *
+ * 예전에는 영상·메신저·게임 같은 종류마다 다르게 반응했는데, 반응의 뜻을 알아보기
+ * 어렵고 번거롭기만 해서 뺐다. 지금은 은행·결제처럼 남이 보면 곤란한 앱에서
+ * 숨는 것만 한다.
  */
 enum class AppCategory(val id: String, val label: String) {
-    VIDEO("video", "영상"),
-    MESSENGER("messenger", "메신저"),
-    SOCIAL("social", "SNS"),
-    GAME("game", "게임"),
-    MUSIC("music", "음악"),
-    CAMERA("camera", "카메라"),
+    /** 은행·결제·인증처럼 남이 보면 곤란한 앱. 여기서는 캐릭터가 숨는다. */
+    SENSITIVE("sensitive", "숨기"),
 
-    /** 은행·결제·증권처럼 남이 보면 곤란한 앱. 여기서는 캐릭터가 숨는다. */
-    SENSITIVE("sensitive", "은행·결제 (숨기)"),
-
-    /** 반응하지 않는다. 사용자가 '이 앱에선 가만히 있어' 라고 정할 때도 쓴다. */
-    NONE("none", "반응 안 함");
+    /** 평소대로 둔다. */
+    NONE("none", "숨지 않기");
 
     /** 이 앱을 쓰는 동안 캐릭터가 숨어야 하는지. */
     val hides: Boolean get() = this == SENSITIVE
 
     companion object {
+        /** 예전 종류(video, game 등)로 저장된 값은 알아보지 못한 것으로 보고 버린다. */
         fun fromId(id: String?): AppCategory? = entries.firstOrNull { it.id == id }
     }
 }
 
 /**
- * 앱이 어떤 종류인지 정한다.
+ * 앱에서 숨어야 하는지 정한다.
  *
  * 순서는 이렇다.
  * 1. 사용자가 직접 정한 것 (가장 우선)
- * 2. 자주 쓰는 앱을 미리 정리해 둔 목록
- * 3. 이름에 bank·pay·wallet 같은 말이 들어 있으면 은행·결제로 본다
- * 4. 앱이 스스로 밝힌 종류 (게임/영상/음악 등, 안드로이드가 알려 줌)
- * 5. 그래도 모르면 반응하지 않는다
+ * 2. 미리 정리해 둔 목록
+ * 3. 이름에 bank·pay·wallet 같은 말이 들어 있으면 숨는다
+ * 4. 그래도 아니면 숨지 않는다
  *
  * 순수 함수라 화면 없이 확인할 수 있다.
  */
 object AppRules {
 
-    fun resolve(
-        packageName: String,
-        overrides: Map<String, AppCategory>,
-        platformHint: AppCategory?
-    ): AppCategory {
+    fun resolve(packageName: String, overrides: Map<String, AppCategory>): AppCategory {
         overrides[packageName]?.let { return it }
         DEFAULTS[packageName]?.let { return it }
         if (looksSensitive(packageName)) return AppCategory.SENSITIVE
-        return platformHint ?: AppCategory.NONE
+        return AppCategory.NONE
     }
 
     /**
@@ -102,114 +95,12 @@ object AppRules {
     }
 
     /**
-     * 자주 쓰는 앱들. 정확한 이름이 확실한 것만 넣었다.
-     * 여기에 없는 앱도 위의 이름 짐작과 안드로이드가 알려 주는 종류로 대부분 잡힌다.
+     * 이름만으로는 알아볼 수 없는 은행·결제·증권 앱. 정확한 이름이 확실한 것만 넣었다.
+     * 나머지 은행 앱은 대부분 위의 이름 짐작으로 잡힌다.
      */
     val DEFAULTS: Map<String, AppCategory> = mapOf(
-        // 영상
-        "com.google.android.youtube" to AppCategory.VIDEO,
-        "com.google.android.apps.youtube.kids" to AppCategory.VIDEO,
-        "com.netflix.mediaclient" to AppCategory.VIDEO,
-        "com.disney.disneyplus" to AppCategory.VIDEO,
-        "tv.twitch.android.app" to AppCategory.VIDEO,
-        "com.frograms.watcha" to AppCategory.VIDEO,
-        "net.cj.cjhv.gs.tving" to AppCategory.VIDEO,
-        "kr.co.captv.pooqV2" to AppCategory.VIDEO,
-        "com.coupang.mobile.play" to AppCategory.VIDEO,
-
-        // 메신저
-        "com.kakao.talk" to AppCategory.MESSENGER,
-        "com.discord" to AppCategory.MESSENGER,
-        "org.telegram.messenger" to AppCategory.MESSENGER,
-        "jp.naver.line.android" to AppCategory.MESSENGER,
-        "com.whatsapp" to AppCategory.MESSENGER,
-        "com.facebook.orca" to AppCategory.MESSENGER,
-        "com.google.android.apps.messaging" to AppCategory.MESSENGER,
-        "com.samsung.android.messaging" to AppCategory.MESSENGER,
-
-        // SNS
-        "com.instagram.android" to AppCategory.SOCIAL,
-        "com.instagram.barcelona" to AppCategory.SOCIAL,
-        "com.twitter.android" to AppCategory.SOCIAL,
-        "com.zhiliaoapp.musically" to AppCategory.SOCIAL,
-        "com.ss.android.ugc.trill" to AppCategory.SOCIAL,
-        "com.facebook.katana" to AppCategory.SOCIAL,
-        "com.pinterest" to AppCategory.SOCIAL,
-
-        // 음악
-        "com.spotify.music" to AppCategory.MUSIC,
-        "com.google.android.apps.youtube.music" to AppCategory.MUSIC,
-        "com.iloen.melon" to AppCategory.MUSIC,
-        "com.ktmusic.geniemusic" to AppCategory.MUSIC,
-        "skplanet.musicmate" to AppCategory.MUSIC,
-        "com.neowiz.android.bugs" to AppCategory.MUSIC,
-        "com.apple.android.music" to AppCategory.MUSIC,
-
-        // 카메라
-        "com.sec.android.app.camera" to AppCategory.CAMERA,
-        "com.google.android.GoogleCamera" to AppCategory.CAMERA,
-        "com.android.camera" to AppCategory.CAMERA,
-        "com.android.camera2" to AppCategory.CAMERA,
-        "com.snowcorp.snow" to AppCategory.CAMERA,
-        "com.linecorp.b612.android" to AppCategory.CAMERA,
-
-        // 은행·결제·인증 (이름 짐작으로 안 잡히는 것)
         "viva.republica.toss" to AppCategory.SENSITIVE,
         "com.samsung.android.spay" to AppCategory.SENSITIVE,
         "com.kiwoom.heromts" to AppCategory.SENSITIVE
     )
-}
-
-/**
- * 앱 종류에 맞춰 어떻게 반응할지 정한다.
- *
- * 앱에 들어간 순간 한 번 반응한다. 숨어야 하는 앱이나 '반응 안 함' 이면 null.
- * 성격에 따라 반응이 달라지고, 금지한 동작은 절대 고르지 않는다.
- * ✨ 는 '번뜩' 이라는 뜻이라 여기서는 쓰지 않는다.
- */
-object AppReactionMapper {
-
-    fun forCategory(category: AppCategory, traits: CharacterTraits): Reaction? {
-        val raw = rawReaction(category, traits) ?: return null
-        if (traits.allows(raw.action)) return raw
-        val fallback = CharacterAction.LOOK_AT
-        if (traits.allows(fallback)) return raw.copy(action = fallback)
-        return raw.copy(action = CharacterAction.IDLE)
-    }
-
-    private fun rawReaction(category: AppCategory, traits: CharacterTraits): Reaction? =
-        when (category) {
-            // 옆에 자리 잡고 같이 본다.
-            AppCategory.VIDEO -> Reaction(CharacterAction.REST, EffectKind.FLOWER, 1)
-
-            // 누구랑 얘기하나 궁금해서 힐끗 본다. 수줍은 아이는 괜히 머쓱해한다.
-            AppCategory.MESSENGER -> if (traits.shyness >= ReactionMapper.STRONG) {
-                Reaction(CharacterAction.SHY, EffectKind.SWEAT, 1)
-            } else {
-                Reaction(CharacterAction.GLANCE, EffectKind.QUESTION, 1)
-            }
-
-            // 구경한다.
-            AppCategory.SOCIAL -> Reaction(CharacterAction.LOOK_AT, EffectKind.HEART, 1)
-
-            // 신나서 응원한다. 기운 없는 아이는 박자만 탄다.
-            AppCategory.GAME -> if (traits.energy >= ReactionMapper.STRONG / 2) {
-                Reaction(CharacterAction.JUMP, EffectKind.FLOWER, 2)
-            } else {
-                Reaction(CharacterAction.RHYTHM, EffectKind.FLOWER, 1)
-            }
-
-            AppCategory.MUSIC -> Reaction(CharacterAction.RHYTHM, EffectKind.NOTE, 2)
-
-            // 사진 찍는다니 폴짝 포즈를 잡는다. 수줍은 아이는 부끄러워한다.
-            AppCategory.CAMERA -> if (traits.shyness >= ReactionMapper.STRONG) {
-                Reaction(CharacterAction.SHY, EffectKind.SWEAT, 1)
-            } else {
-                Reaction(CharacterAction.JUMP, EffectKind.HEART, 2)
-            }
-
-            // 숨는 건 반응이 아니라 사라지는 것이다. 컨트롤러가 따로 처리한다.
-            AppCategory.SENSITIVE -> null
-            AppCategory.NONE -> null
-        }
 }
